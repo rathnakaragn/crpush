@@ -69,8 +69,8 @@ Default credentials: `admin` / `admin` (change on first login via Settings page)
 
 ```bash
 # First-time setup
-wrangler d1 create opencrpushover
+wrangler d1 create crpush
 # Update database_id in wrangler.json
-wrangler d1 execute opencrpushover --remote --file=schema.sql
+wrangler d1 execute crpush --remote --file=schema.sql
 npm run deploy
 ```

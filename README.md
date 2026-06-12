@@ -52,7 +52,7 @@ npm run deploy
 
 Your app is live at `https://crpush.<your-subdomain>.workers.dev`.
 
-Log in with `admin` / `admin` and change your credentials immediately via Settings.
+Log in with your `AUTH_PASSWORD` (set via `wrangler secret put AUTH_PASSWORD`).
 
 ### 5. Configure Pushover
 
@@ -62,6 +62,14 @@ Log in with `admin` / `admin` and change your credentials immediately via Settin
 4. Go to **Settings** in the crpush dashboard
 5. Enter your App Token and User Key, then click **Save Settings**
 6. Click **Send Test Notification** to verify everything works
+
+## Defaults
+
+| Setting | Default | Change via |
+|---------|---------|-----------|
+| Timezone | `Asia/Kolkata` | Settings page |
+| Quiet hours | 23:00–06:00 | Settings page |
+| Cron interval | every 5 minutes | `wrangler.json` → `triggers.crons` |
 
 ## Commands
 

@@ -74,11 +74,12 @@ Log in with your `AUTH_PASSWORD` (set via `wrangler secret put AUTH_PASSWORD`).
 ## Commands
 
 ```bash
-npm run dev        # wrangler dev (local Worker)
-npm run deploy     # wrangler deploy (to Cloudflare)
-npm test           # vitest run
-npm run test:watch # vitest watch
-npx tsc --noEmit   # type-check
+npm run dev              # wrangler dev (local Worker)
+npx wrangler@4.53.0 deploy  # deploy to Cloudflare (requires Node 22+ for wrangler in devDeps)
+npm test                 # unit tests (vitest, node env)
+npm run test:integration # integration tests (vitest, Workers env via Miniflare)
+npm run test:watch       # unit tests in watch mode
+npx tsc --noEmit         # type-check
 ```
 
 ## License

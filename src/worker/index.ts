@@ -3,7 +3,6 @@ import {
   // @ts-ignore – used in Task 13 (cron handler)
   checkForUpdates,
   fetchPlayerData, calculatePoints,
-  // @ts-ignore – used in Task 13 (cron handler)
   calculateTotalRatingChange,
   parseSessionData, type ChessSession,
 } from "./chess";
@@ -354,6 +353,95 @@ app.post("/sessions/:id/toggle-notify", async (c) => {
   await c.env.DB.prepare("UPDATE chess_sessions SET notify = ? WHERE id = ?")
     .bind(session.notify ? 0 : 1, c.req.param("id")).run();
   return c.redirect("/");
+});
+
+// ── Session detail ────────────────────────────────────────────────────────────
+
+app.get("/session/:id", async (c) => {
+  const s = await c.env.DB.prepare("SELECT * FROM chess_sessions WHERE id = ?")
+    .bind(c.req.param("id")).first<Record<string, unknown>>();
+  if (!s) return c.redirect("/");
+
+  const data = parseSessionData(s as unknown as ChessSession);
+  const ratingEst = calculateTotalRatingChange(
+    data.player?.rating || 0, data.matches || [], data.player?.kFactor || 20
+  ).total;
+  const points = calculatePoints(data.matches || []);
+
+  const matchRows = (data.matches || []).map(m => {
+    const outcome = m.result === "1" ? "Win" : m.result === "0" ? "Loss" : m.result ? "Draw" : "—";
+    const cls = m.result === "1" ? "text-green-700 font-medium" : m.result === "0" ? "text-red-700 font-medium" : "text-gray-700";
+    return `<tr class="border-t border-gray-100 hover:bg-gray-50">
+      <td class="px-4 py-2 text-sm text-center">${m.round_number}</td>
+      <td class="px-4 py-2 text-sm">${m.opponent_name}</td>
+      <td class="px-4 py-2 text-sm text-center">${m.opponent_rating || "—"}</td>
+      <td class="px-4 py-2 text-sm text-center">${m.color || "—"}</td>
+      <td class="px-4 py-2 text-sm text-center">${m.board || "—"}</td>
+      <td class="px-4 py-2 text-sm text-center ${cls}">${outcome}</td>
+    </tr>`;
+  }).join("");
+
+  const ratingDisplay = data.ratingChange !== 0
+    ? `${data.ratingChange > 0 ? "+" : ""}${data.ratingChange}`
+    : ratingEst !== 0 ? `~${ratingEst > 0 ? "+" : ""}${ratingEst}` : "—";
+  const ratingColor = (data.ratingChange || ratingEst) > 0 ? "text-green-700" : (data.ratingChange || ratingEst) < 0 ? "text-red-700" : "text-gray-900";
+
+  const content = `
+    <div class="mb-6">
+      <a href="/" class="text-sm text-blue-600 hover:underline">← Back to Sessions</a>
+    </div>
+    <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6 mb-6">
+      <div class="flex items-start justify-between">
+        <div>
+          <h1 class="text-2xl font-bold text-gray-900">${data.player?.name || "Unknown"}</h1>
+          <p class="text-gray-500 mt-0.5">${data.tournament_name || "Tournament"}</p>
+        </div>
+        <div class="flex items-center gap-2">
+          ${statusBadge(s.status as string)}
+          <a href="${s.url as string}" target="_blank" rel="noopener" class="text-xs text-blue-600 hover:underline">chess-results.com ↗</a>
+        </div>
+      </div>
+      <div class="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div class="bg-gray-50 rounded-lg p-3">
+          <div class="text-xs text-gray-500 mb-1">Current Rank</div>
+          <div class="text-xl font-bold text-gray-900">#${data.player?.current_rank || "?"}</div>
+        </div>
+        <div class="bg-gray-50 rounded-lg p-3">
+          <div class="text-xs text-gray-500 mb-1">Points</div>
+          <div class="text-xl font-bold text-gray-900">${points} / ${data.total_rounds || "?"}</div>
+        </div>
+        <div class="bg-gray-50 rounded-lg p-3">
+          <div class="text-xs text-gray-500 mb-1">Rating</div>
+          <div class="text-xl font-bold text-gray-900">${data.player?.rating || "—"}</div>
+        </div>
+        <div class="bg-gray-50 rounded-lg p-3">
+          <div class="text-xs text-gray-500 mb-1">Rating ±</div>
+          <div class="text-xl font-bold ${ratingColor}">${ratingDisplay}</div>
+        </div>
+      </div>
+    </div>
+    ${(data.matches || []).length > 0
+      ? `<div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <div class="px-4 py-3 border-b border-gray-100">
+            <h2 class="text-sm font-semibold text-gray-700">Match History</h2>
+          </div>
+          <table class="w-full">
+            <thead>
+              <tr class="bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
+                <th class="px-4 py-3 text-center">Rd</th>
+                <th class="px-4 py-3">Opponent</th>
+                <th class="px-4 py-3 text-center">Rating</th>
+                <th class="px-4 py-3 text-center">Color</th>
+                <th class="px-4 py-3 text-center">Board</th>
+                <th class="px-4 py-3 text-center">Result</th>
+              </tr>
+            </thead>
+            <tbody>${matchRows}</tbody>
+          </table>
+        </div>`
+      : `<div class="text-center py-8 text-gray-400">No matches yet.</div>`}
+  `;
+  return c.html(layout(data.player?.name || "Session", content, "sessions"));
 });
 
 // ── Export (scheduled handler completed in Task 13) ───────────────────────────

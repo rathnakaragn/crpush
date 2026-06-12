@@ -1,3 +1,7 @@
+import { eq, sql } from "drizzle-orm";
+import type { AppDB } from "./drizzle";
+import { chessSessions, notifications } from "./schema";
+
 // ── HTML entity decoder ──────────────────────────────────────────────────────
 
 function decodeHtmlEntities(str: string): string {
@@ -421,7 +425,7 @@ function hasStandingsChanged(oldData: SessionData, standing: TournamentStanding)
 }
 
 async function saveNotification(
-  db: D1Database,
+  db: AppDB,
   sessionId: number,
   type: string,
   title: string,
@@ -430,19 +434,20 @@ async function saveNotification(
   roundNumber: number,
 ): Promise<number> {
   try {
-    const result = await db.prepare(
-      `INSERT INTO notifications (session_id, type, title, message, sent, round_number)
-       VALUES (?, ?, ?, ?, ?, ?)`
-    ).bind(sessionId, type, title, message, sent ? 1 : 0, roundNumber).run();
-    return result.meta.last_row_id as number;
+    const notifType = type as "pairing" | "result" | "completion";
+    const result = await db
+      .insert(notifications)
+      .values({ sessionId, type: notifType, title, message, sent: sent ? 1 : 0, roundNumber })
+      .returning({ id: notifications.id });
+    return result[0]?.id ?? 0;
   } catch {
     // Likely a dedup constraint violation — skip silently
     return 0;
   }
 }
 
-async function markNotificationSent(db: D1Database, id: number): Promise<void> {
-  await db.prepare("UPDATE notifications SET sent = 1 WHERE id = ?").bind(id).run();
+async function markNotificationSent(db: AppDB, id: number): Promise<void> {
+  await db.update(notifications).set({ sent: 1 }).where(eq(notifications.id, id));
 }
 
 
@@ -489,7 +494,7 @@ function formatNotification(n: Notification): { title: string; message: string }
   }
 }
 
-async function checkPlayerUpdate(db: D1Database, session: ChessSession): Promise<Notification[]> {
+async function checkPlayerUpdate(db: AppDB, session: ChessSession): Promise<Notification[]> {
   const notifications: Notification[] = [];
   try {
     const oldData = parseSessionData(session);
@@ -518,11 +523,14 @@ async function checkPlayerUpdate(db: D1Database, session: ChessSession): Promise
     // Auto-stop completed tournaments
     if (newData.total_rounds > 0 && newData.completed_rounds >= newData.total_rounds && oldData.completed_rounds < newData.total_rounds) {
       notifications.push({ type: 'completion', session, oldData, newData });
-      await db.prepare("UPDATE chess_sessions SET status = 'completed', updated_at = datetime('now') WHERE id = ?").bind(session.id).run();
+      await db.update(chessSessions)
+        .set({ status: "completed", updatedAt: sql`(datetime('now'))` })
+        .where(eq(chessSessions.id, session.id));
     }
     // Persist updated data
-    await db.prepare("UPDATE chess_sessions SET data = ?, updated_at = datetime('now') WHERE id = ?")
-      .bind(JSON.stringify(newData), session.id).run();
+    await db.update(chessSessions)
+      .set({ data: JSON.stringify(newData), updatedAt: sql`(datetime('now'))` })
+      .where(eq(chessSessions.id, session.id));
   } catch (err) {
     console.error(`[chess] Error checking session ${session.id}:`, err);
   }
@@ -536,13 +544,25 @@ export interface PollResult {
 }
 
 export async function checkForUpdates(
-  db: D1Database,
+  db: AppDB,
   sendNotification: (title: string, message: string, url: string) => Promise<boolean>,
   writeLog: (msg: string, level?: 'info' | 'warn' | 'error', source?: string) => Promise<void>,
 ): Promise<PollResult> {
-  const { results: running } = await db.prepare(
-    "SELECT * FROM chess_sessions WHERE status = 'running'"
-  ).all<ChessSession>();
+  const rows = await db.select().from(chessSessions).where(eq(chessSessions.status, "running"));
+  // Map camelCase Drizzle results back to snake_case ChessSession interface
+  const running: ChessSession[] = rows.map(r => ({
+    id: r.id,
+    url: r.url,
+    server: r.server ?? "",
+    tournament_id: r.tournamentId,
+    player_snr: r.playerSnr,
+    federation: r.federation ?? "IND",
+    status: r.status ?? "running",
+    notify: r.notify ?? 1,
+    data: r.data ?? "{}",
+    created_at: r.createdAt ?? "",
+    updated_at: r.updatedAt ?? "",
+  }));
 
   if (running.length === 0) {
     return { sessions: 0, notifications: 0 };
@@ -565,8 +585,9 @@ export async function checkForUpdates(
 
         // Auto-stop sessions already complete based on stored data (e.g. added after last round)
         if (oldData.total_rounds > 0 && oldData.completed_rounds >= oldData.total_rounds) {
-          await db.prepare("UPDATE chess_sessions SET status = 'completed', updated_at = datetime('now') WHERE id = ?")
-            .bind(session.id).run();
+          await db.update(chessSessions)
+            .set({ status: "completed", updatedAt: sql`(datetime('now'))` })
+            .where(eq(chessSessions.id, session.id));
           await writeLog(`Auto-stopped completed session: ${oldData.player.name} (${oldData.completed_rounds}/${oldData.total_rounds})`, 'info', 'cron');
           continue;
         }

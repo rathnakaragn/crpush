@@ -87,7 +87,10 @@ export async function verifySessionCookie(key: CryptoKey, cookie: string): Promi
     const sigBytes = Uint8Array.from(atob(sig.replace(/-/g, "+").replace(/_/g, "/")), c => c.charCodeAt(0));
     const valid = await crypto.subtle.verify("HMAC", key, sigBytes, new TextEncoder().encode(payload));
     if (!valid) return null;
-    const [username, expStr] = atob(payload).split(":");
+    const decoded = atob(payload);
+    const sep = decoded.indexOf(":");
+    const username = decoded.slice(0, sep);
+    const expStr = decoded.slice(sep + 1);
     if (parseInt(expStr) < Math.floor(Date.now() / 1000)) return null;
     return username;
   } catch {
@@ -745,8 +748,11 @@ app.post("/poll", async (c) => {
     writeLog(c.env.DB, msg, level, source);
 
   await writeLog(c.env.DB, "Manual check triggered", "info", "poll");
-  const result = await checkForUpdates(c.env.DB, sendFn, logFn);
-  await writeLog(c.env.DB, `Manual check done — ${result.sessions} session(s), ${result.notifications} notification(s)`, "info", "poll");
+  c.executionCtx.waitUntil(
+    checkForUpdates(c.env.DB, sendFn, logFn).then(result =>
+      writeLog(c.env.DB, `Manual check done — ${result.sessions} session(s), ${result.notifications} notification(s)`, "info", "poll")
+    )
+  );
   return c.redirect("/");
 });
 
@@ -755,21 +761,19 @@ app.post("/poll", async (c) => {
 export default {
   fetch: app.fetch,
   async scheduled(_event: ScheduledEvent, env: Env, _ctx: ExecutionContext) {
-    const timezone = (await env.DB.prepare("SELECT value FROM settings WHERE key = 'timezone'")
-      .first<{ value: string }>())?.value || "Asia/Kolkata";
-    const nightStart = parseInt(
-      (await env.DB.prepare("SELECT value FROM settings WHERE key = 'night_start_hour'")
-        .first<{ value: string }>())?.value || "23", 10
-    );
-    const nightEnd = parseInt(
-      (await env.DB.prepare("SELECT value FROM settings WHERE key = 'night_end_hour'")
-        .first<{ value: string }>())?.value || "6", 10
-    );
+    const [tzRes, nightStartRes, nightEndRes] = await env.DB.batch([
+      env.DB.prepare("SELECT value FROM settings WHERE key = 'timezone'"),
+      env.DB.prepare("SELECT value FROM settings WHERE key = 'night_start_hour'"),
+      env.DB.prepare("SELECT value FROM settings WHERE key = 'night_end_hour'"),
+    ]);
+    const timezone = (tzRes.results[0] as { value: string } | undefined)?.value || "Asia/Kolkata";
+    const nightStart = parseInt((nightStartRes.results[0] as { value: string } | undefined)?.value || "23", 10);
+    const nightEnd = parseInt((nightEndRes.results[0] as { value: string } | undefined)?.value || "6", 10);
 
     const hour = parseInt(
       new Date().toLocaleString("en-US", { timeZone: timezone, hour: "numeric", hour12: false }),
       10
-    );
+    ) % 24;
     const isNight = nightStart > nightEnd
       ? hour >= nightStart || hour < nightEnd
       : hour >= nightStart && hour < nightEnd;

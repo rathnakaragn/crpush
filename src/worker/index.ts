@@ -54,7 +54,9 @@ async function verifySessionCookie(cookie: string, password: string): Promise<bo
   const sig = cookie.slice(dot + 1);
   try {
     const key = await cookieKey(password);
-    const sigBytes = Uint8Array.from(atob(sig.replace(/-/g, "+").replace(/_/g, "/")), c => c.charCodeAt(0));
+    const std = sig.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = std + "=".repeat((4 - std.length % 4) % 4);
+    const sigBytes = Uint8Array.from(atob(padded), c => c.charCodeAt(0));
     const valid = await crypto.subtle.verify("HMAC", key, sigBytes, new TextEncoder().encode(payload));
     if (!valid) return false;
     return parseInt(payload) > Math.floor(Date.now() / 1000);

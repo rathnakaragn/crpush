@@ -1,27 +1,31 @@
+import { eq, sql } from "drizzle-orm";
 import type { ChessSession } from "./chess";
+import type { AppDB } from "./drizzle";
+import { settings, workerLogs } from "./schema";
 
 // ── DB helpers ────────────────────────────────────────────────────────────────
 
-export async function getSetting(db: D1Database, key: string): Promise<string | null> {
-  const row = await db.prepare("SELECT value FROM settings WHERE key = ?").bind(key).first<{ value: string }>();
-  return row?.value ?? null;
+export async function getSetting(db: AppDB, key: string): Promise<string | null> {
+  const rows = await db.select({ value: settings.value }).from(settings).where(eq(settings.key, key));
+  return rows[0]?.value ?? null;
 }
 
-export async function writeLog(db: D1Database, message: string, level: "info" | "warn" | "error" = "info", source = "worker"): Promise<void> {
+export async function writeLog(db: AppDB, message: string, level: "info" | "warn" | "error" = "info", source = "worker"): Promise<void> {
   try {
-    await db.batch([
-      db.prepare("INSERT INTO worker_logs (level, source, message) VALUES (?, ?, ?)").bind(level, source, message),
-      db.prepare("DELETE FROM worker_logs WHERE id NOT IN (SELECT id FROM worker_logs ORDER BY created_at DESC LIMIT 1000)"),
-    ]);
+    await db.insert(workerLogs).values({ level, source, message });
+    // Cap at 1000 rows — delete oldest beyond limit
+    await db.run(
+      sql`DELETE FROM worker_logs WHERE id NOT IN (SELECT id FROM worker_logs ORDER BY created_at DESC LIMIT 1000)`
+    );
   } catch {
     console.error("[writeLog] failed:", message);
   }
 }
 
-export async function getCredentials(db: D1Database): Promise<{ user: string; pass: string }> {
-  const userRow = await db.prepare("SELECT value FROM settings WHERE key = 'dashboard_user'").first<{ value: string }>();
-  const passRow = await db.prepare("SELECT value FROM settings WHERE key = 'dashboard_password'").first<{ value: string }>();
-  return { user: userRow?.value || "admin", pass: passRow?.value || "admin" };
+export async function getCredentials(db: AppDB): Promise<{ user: string; pass: string }> {
+  const userRow = await db.select({ value: settings.value }).from(settings).where(eq(settings.key, "dashboard_user"));
+  const passRow = await db.select({ value: settings.value }).from(settings).where(eq(settings.key, "dashboard_password"));
+  return { user: userRow[0]?.value || "admin", pass: passRow[0]?.value || "admin" };
 }
 
 export function parseChessUrl(url: string): { server: string; tournament_id: string; player_snr: string; federation: string } | null {

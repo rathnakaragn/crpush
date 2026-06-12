@@ -25,6 +25,95 @@ import {
 
 const app = new Hono<{ Bindings: Env }>();
 
+// ── Auth ──────────────────────────────────────────────────────────────────────
+
+function b64url(buf: ArrayBuffer): string {
+  return btoa(String.fromCharCode(...new Uint8Array(buf)))
+    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+}
+
+async function cookieKey(password: string): Promise<CryptoKey> {
+  return crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(password),
+    { name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"]
+  );
+}
+
+async function makeSessionCookie(password: string): Promise<string> {
+  const exp = Math.floor(Date.now() / 1000) + 86400 * 7;
+  const payload = String(exp);
+  const key = await cookieKey(password);
+  const sig = b64url(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload)));
+  return `${payload}.${sig}`;
+}
+
+async function verifySessionCookie(cookie: string, password: string): Promise<boolean> {
+  const dot = cookie.lastIndexOf(".");
+  if (dot === -1) return false;
+  const payload = cookie.slice(0, dot);
+  const sig = cookie.slice(dot + 1);
+  try {
+    const key = await cookieKey(password);
+    const sigBytes = Uint8Array.from(atob(sig.replace(/-/g, "+").replace(/_/g, "/")), c => c.charCodeAt(0));
+    const valid = await crypto.subtle.verify("HMAC", key, sigBytes, new TextEncoder().encode(payload));
+    if (!valid) return false;
+    return parseInt(payload) > Math.floor(Date.now() / 1000);
+  } catch {
+    return false;
+  }
+}
+
+app.use("/*", async (c, next) => {
+  if (c.req.path === "/login") return next();
+  const cookieHeader = c.req.header("Cookie") || "";
+  const match = cookieHeader.match(/(?:^|;\s*)session=([^;]+)/);
+  if (!match) return c.redirect("/login");
+  const valid = await verifySessionCookie(decodeURIComponent(match[1]), c.env.AUTH_PASSWORD);
+  if (!valid) return c.redirect("/login");
+  return next();
+});
+
+app.get("/login", (c) => {
+  const error = c.req.query("error");
+  return c.html(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login — crpush</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 min-h-screen flex items-center justify-center">
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-8 w-full max-w-sm">
+    <h1 class="text-2xl font-bold text-gray-900 mb-1">♟ crpush</h1>
+    <p class="text-gray-500 text-sm mb-6">Enter your password to continue</p>
+    ${error ? `<div class="mb-4 p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700">Incorrect password.</div>` : ""}
+    <form method="POST" action="/login" class="space-y-4">
+      <input name="password" type="password" required autofocus placeholder="Password"
+        class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+      <button type="submit"
+        class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg px-4 py-2 text-sm transition-colors">
+        Sign In
+      </button>
+    </form>
+  </div>
+</body>
+</html>`);
+});
+
+app.post("/login", async (c) => {
+  const body = await c.req.parseBody();
+  const password = String(body.password || "");
+  if (password !== c.env.AUTH_PASSWORD) return c.redirect("/login?error=1");
+  const cookie = await makeSessionCookie(c.env.AUTH_PASSWORD);
+  c.header("Set-Cookie", `session=${encodeURIComponent(cookie)}; HttpOnly; Secure; SameSite=Lax; Max-Age=604800; Path=/`);
+  return c.redirect("/");
+});
+
+app.post("/logout", (c) => {
+  c.header("Set-Cookie", "session=; HttpOnly; Secure; SameSite=Lax; Max-Age=0; Path=/");
+  return c.redirect("/login");
+});
 
 // ── Sessions ──────────────────────────────────────────────────────────────────
 

@@ -16,6 +16,38 @@ function escapeHtml(s: unknown): string {
     .replace(/'/g, "&#x27;");
 }
 
+async function hashPassword(password: string): Promise<string> {
+  const salt = Array.from(crypto.getRandomValues(new Uint8Array(16)))
+    .map(b => b.toString(16).padStart(2, "0")).join("");
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(password),
+    "PBKDF2", false, ["deriveBits"]
+  );
+  const bits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", hash: "SHA-256", salt: new TextEncoder().encode(salt), iterations: 100000 },
+    keyMaterial, 256
+  );
+  const hash = Array.from(new Uint8Array(bits))
+    .map(b => b.toString(16).padStart(2, "0")).join("");
+  return `${salt}:${hash}`;
+}
+
+async function verifyPassword(password: string, stored: string): Promise<boolean> {
+  const [salt, expectedHash] = stored.split(":");
+  if (!salt || !expectedHash) return false;
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(password),
+    "PBKDF2", false, ["deriveBits"]
+  );
+  const bits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", hash: "SHA-256", salt: new TextEncoder().encode(salt), iterations: 100000 },
+    keyMaterial, 256
+  );
+  const hash = Array.from(new Uint8Array(bits))
+    .map(b => b.toString(16).padStart(2, "0")).join("");
+  return hash === expectedHash;
+}
+
 const app = new Hono<{ Bindings: Env }>();
 
 // ── Cookie auth ───────────────────────────────────────────────────────────────
@@ -214,7 +246,14 @@ app.post("/login", async (c) => {
   const username = String(body.username || "");
   const password = String(body.password || "");
   const creds = await getCredentials(c.env.DB);
-  if (username !== creds.user || password !== creds.pass) return c.redirect("/login?error=1");
+  const usernameMatch = username === creds.user;
+  let passwordMatch: boolean;
+  if (creds.pass.includes(":") && creds.pass.length > 40) {
+    passwordMatch = await verifyPassword(password, creds.pass);
+  } else {
+    passwordMatch = password === creds.pass;
+  }
+  if (!usernameMatch || !passwordMatch) return c.redirect("/login?error=1");
   const key = await getCookieSecret(c.env.DB);
   const cookie = await createSessionCookie(key, username);
   c.header("Set-Cookie", `session=${encodeURIComponent(cookie)}; HttpOnly; Secure; SameSite=Lax; Max-Age=604800; Path=/`);
@@ -682,9 +721,10 @@ app.post("/settings/password", async (c) => {
   const username = String(body.username || "").trim();
   const password = String(body.password || "").trim();
   if (!username || !password) return c.redirect("/settings");
+  const hashedPassword = await hashPassword(password);
   await c.env.DB.batch([
     c.env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").bind("dashboard_user", username),
-    c.env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").bind("dashboard_password", password),
+    c.env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").bind("dashboard_password", hashedPassword),
   ]);
   c.header("Set-Cookie", "session=; HttpOnly; Secure; SameSite=Lax; Max-Age=0; Path=/");
   return c.redirect("/login");

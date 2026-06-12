@@ -701,11 +701,49 @@ app.post("/poll", async (c) => {
   return c.redirect("/");
 });
 
-// ── Export (scheduled handler completed in Task 13) ───────────────────────────
+// ── Export ────────────────────────────────────────────────────────────────────
 
 export default {
   fetch: app.fetch,
   async scheduled(_event: ScheduledEvent, env: Env, _ctx: ExecutionContext) {
-    await writeLog(env.DB, "Cron stub — implement in Task 13", "info", "cron");
+    const timezone = (await env.DB.prepare("SELECT value FROM settings WHERE key = 'timezone'")
+      .first<{ value: string }>())?.value || "Asia/Kolkata";
+    const nightStart = parseInt(
+      (await env.DB.prepare("SELECT value FROM settings WHERE key = 'night_start_hour'")
+        .first<{ value: string }>())?.value || "23", 10
+    );
+    const nightEnd = parseInt(
+      (await env.DB.prepare("SELECT value FROM settings WHERE key = 'night_end_hour'")
+        .first<{ value: string }>())?.value || "6", 10
+    );
+
+    const hour = parseInt(
+      new Date().toLocaleString("en-US", { timeZone: timezone, hour: "numeric", hour12: false }),
+      10
+    );
+    const isNight = nightStart > nightEnd
+      ? hour >= nightStart || hour < nightEnd
+      : hour >= nightStart && hour < nightEnd;
+
+    if (isNight) {
+      await writeLog(env.DB, `Cron skipped — quiet hours (hour=${hour}, quiet=${nightStart}h–${nightEnd}h)`, "info", "cron");
+      return;
+    }
+
+    const appToken = (await env.DB.prepare("SELECT value FROM settings WHERE key = 'pushover_app_token'")
+      .first<{ value: string }>())?.value || "";
+    const userKey = (await env.DB.prepare("SELECT value FROM settings WHERE key = 'pushover_user_key'")
+      .first<{ value: string }>())?.value || "";
+
+    const sendFn = async (title: string, message: string, url: string) => {
+      if (!appToken || !userKey) return false;
+      return sendPushover(appToken, userKey, title, message, url);
+    };
+
+    const logFn = (msg: string, level: "info" | "warn" | "error" = "info", source = "cron") =>
+      writeLog(env.DB, msg, level, source);
+
+    const result = await checkForUpdates(env.DB, sendFn, logFn);
+    await writeLog(env.DB, `Cron done — ${result.sessions} session(s), ${result.notifications} notification(s)`, "info", "cron");
   },
 };

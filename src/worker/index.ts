@@ -1,201 +1,34 @@
 import { Hono } from "hono";
 import {
   checkForUpdates,
-  fetchPlayerData, calculatePoints,
+  fetchPlayerData,
+  calculatePoints,
   calculateTotalRatingChange,
   parseSessionData, type ChessSession,
 } from "./chess";
 import { sendPushover } from "./pushover";
-
-function escapeHtml(s: unknown): string {
-  return String(s ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#x27;");
-}
-
-async function hashPassword(password: string): Promise<string> {
-  const salt = Array.from(crypto.getRandomValues(new Uint8Array(16)))
-    .map(b => b.toString(16).padStart(2, "0")).join("");
-  const keyMaterial = await crypto.subtle.importKey(
-    "raw", new TextEncoder().encode(password),
-    "PBKDF2", false, ["deriveBits"]
-  );
-  const bits = await crypto.subtle.deriveBits(
-    { name: "PBKDF2", hash: "SHA-256", salt: new TextEncoder().encode(salt), iterations: 100000 },
-    keyMaterial, 256
-  );
-  const hash = Array.from(new Uint8Array(bits))
-    .map(b => b.toString(16).padStart(2, "0")).join("");
-  return `${salt}:${hash}`;
-}
-
-async function verifyPassword(password: string, stored: string): Promise<boolean> {
-  const [salt, expectedHash] = stored.split(":");
-  if (!salt || !expectedHash) return false;
-  const keyMaterial = await crypto.subtle.importKey(
-    "raw", new TextEncoder().encode(password),
-    "PBKDF2", false, ["deriveBits"]
-  );
-  const bits = await crypto.subtle.deriveBits(
-    { name: "PBKDF2", hash: "SHA-256", salt: new TextEncoder().encode(salt), iterations: 100000 },
-    keyMaterial, 256
-  );
-  const hash = Array.from(new Uint8Array(bits))
-    .map(b => b.toString(16).padStart(2, "0")).join("");
-  return hash === expectedHash;
-}
+import {
+  getCookieSecret,
+  createSessionCookie,
+  getAuthUser,
+  hashPassword,
+  verifyPassword,
+} from "./auth";
+import {
+  getSetting,
+  writeLog,
+  getCredentials,
+  parseChessUrl,
+} from "./db";
+import {
+  escapeHtml,
+  statusBadge,
+  levelBadge,
+  layout,
+  formatSession,
+} from "./templates";
 
 const app = new Hono<{ Bindings: Env }>();
-
-// ── Cookie auth ───────────────────────────────────────────────────────────────
-
-export async function getCookieSecret(db: D1Database): Promise<CryptoKey> {
-  let secret = (await db.prepare("SELECT value FROM settings WHERE key = 'session_cookie_secret'")
-    .first<{ value: string }>())?.value;
-  if (!secret) {
-    secret = Array.from(crypto.getRandomValues(new Uint8Array(32)))
-      .map(b => b.toString(16).padStart(2, "0")).join("");
-    await db.prepare("INSERT INTO settings (key, value) VALUES (?, ?)").bind("session_cookie_secret", secret).run();
-  }
-  return crypto.subtle.importKey(
-    "raw", new TextEncoder().encode(secret),
-    { name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"]
-  );
-}
-
-export function b64url(buf: ArrayBuffer): string {
-  return btoa(String.fromCharCode(...new Uint8Array(buf)))
-    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
-}
-
-export async function createSessionCookie(key: CryptoKey, username: string): Promise<string> {
-  const exp = Math.floor(Date.now() / 1000) + 86400 * 7;
-  const payload = btoa(`${username}:${exp}`);
-  const sig = b64url(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload)));
-  return `${payload}.${sig}`;
-}
-
-export async function verifySessionCookie(key: CryptoKey, cookie: string): Promise<string | null> {
-  const dot = cookie.lastIndexOf(".");
-  if (dot === -1) return null;
-  const payload = cookie.slice(0, dot);
-  const sig = cookie.slice(dot + 1);
-  try {
-    const sigBytes = Uint8Array.from(atob(sig.replace(/-/g, "+").replace(/_/g, "/")), c => c.charCodeAt(0));
-    const valid = await crypto.subtle.verify("HMAC", key, sigBytes, new TextEncoder().encode(payload));
-    if (!valid) return null;
-    const decoded = atob(payload);
-    const sep = decoded.indexOf(":");
-    const username = decoded.slice(0, sep);
-    const expStr = decoded.slice(sep + 1);
-    if (parseInt(expStr) < Math.floor(Date.now() / 1000)) return null;
-    return username;
-  } catch {
-    return null;
-  }
-}
-
-export async function getAuthUser(req: Request, db: D1Database): Promise<string | null> {
-  const cookieHeader = req.headers.get("Cookie") || "";
-  const match = cookieHeader.match(/(?:^|;\s*)session=([^;]+)/);
-  if (!match) return null;
-  const key = await getCookieSecret(db);
-  return verifySessionCookie(key, decodeURIComponent(match[1]));
-}
-
-// ── DB helpers ────────────────────────────────────────────────────────────────
-
-export async function getSetting(db: D1Database, key: string): Promise<string | null> {
-  const row = await db.prepare("SELECT value FROM settings WHERE key = ?").bind(key).first<{ value: string }>();
-  return row?.value ?? null;
-}
-
-export async function writeLog(db: D1Database, message: string, level: "info" | "warn" | "error" = "info", source = "worker"): Promise<void> {
-  try {
-    await db.batch([
-      db.prepare("INSERT INTO worker_logs (level, source, message) VALUES (?, ?, ?)").bind(level, source, message),
-      db.prepare("DELETE FROM worker_logs WHERE id NOT IN (SELECT id FROM worker_logs ORDER BY created_at DESC LIMIT 1000)"),
-    ]);
-  } catch {
-    console.error("[writeLog] failed:", message);
-  }
-}
-
-export async function getCredentials(db: D1Database): Promise<{ user: string; pass: string }> {
-  const userRow = await db.prepare("SELECT value FROM settings WHERE key = 'dashboard_user'").first<{ value: string }>();
-  const passRow = await db.prepare("SELECT value FROM settings WHERE key = 'dashboard_password'").first<{ value: string }>();
-  return { user: userRow?.value || "admin", pass: passRow?.value || "admin" };
-}
-
-export function parseChessUrl(url: string): { server: string; tournament_id: string; player_snr: string; federation: string } | null {
-  try {
-    const u = new URL(url.startsWith("http") ? url : `https://${url}`);
-    if (!u.hostname.includes("chess-results.com")) return null;
-    const parts = u.hostname.split(".");
-    const server = parts.length > 2 ? parts[0] : "";
-    const pathMatch = u.pathname.match(/\/(tnr\d+)\.aspx/i);
-    const tournament_id = pathMatch?.[1];
-    const player_snr = u.searchParams.get("snr");
-    const federation = u.searchParams.get("fed") || "IND";
-    if (!tournament_id || !player_snr) return null;
-    return { server, tournament_id, player_snr, federation };
-  } catch {
-    return null;
-  }
-}
-
-// ── HTML helpers ──────────────────────────────────────────────────────────────
-
-export function statusBadge(status: string): string {
-  const styles: Record<string, string> = {
-    running: "bg-green-100 text-green-800",
-    stopped: "bg-gray-100 text-gray-700",
-    completed: "bg-blue-100 text-blue-800",
-    error: "bg-red-100 text-red-800",
-  };
-  return `<span class="px-2 py-0.5 rounded text-xs font-medium ${styles[status] ?? "bg-gray-100 text-gray-700"}">${status}</span>`;
-}
-
-export function levelBadge(level: string): string {
-  const styles: Record<string, string> = {
-    info: "bg-gray-100 text-gray-700",
-    warn: "bg-yellow-100 text-yellow-800",
-    error: "bg-red-100 text-red-800",
-  };
-  return `<span class="px-2 py-0.5 rounded text-xs font-medium ${styles[level] ?? "bg-gray-100 text-gray-700"}">${level}</span>`;
-}
-
-export function layout(title: string, content: string, activePage = ""): string {
-  const link = (href: string, label: string, page: string) =>
-    `<a href="${href}" class="text-sm ${activePage === page ? "text-blue-600 font-medium" : "text-gray-600 hover:text-gray-900"}">${label}</a>`;
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${escapeHtml(title)} — OpenCRBot</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="bg-gray-50 min-h-screen">
-  <nav class="bg-white border-b border-gray-200 px-6 py-3 flex items-center gap-6 sticky top-0 z-10">
-    <a href="/" class="font-bold text-gray-900 text-lg">♟ OpenCRBot</a>
-    ${link("/", "Sessions", "sessions")}
-    ${link("/notifications", "Notifications", "notifications")}
-    ${link("/logs", "Logs", "logs")}
-    ${link("/settings", "Settings", "settings")}
-    <div class="ml-auto">
-      <form method="POST" action="/logout">
-        <button type="submit" class="text-sm text-gray-500 hover:text-gray-900">Logout</button>
-      </form>
-    </div>
-  </nav>
-  <main class="max-w-5xl mx-auto px-6 py-8">${content}</main>
-</body>
-</html>`;
-}
 
 // ── Auth middleware ───────────────────────────────────────────────────────────
 
@@ -269,22 +102,6 @@ app.post("/logout", (c) => {
 });
 
 // ── Sessions ──────────────────────────────────────────────────────────────────
-
-function formatSession(s: Record<string, unknown>) {
-  const data = parseSessionData(s as unknown as ChessSession);
-  return {
-    id: s.id as number,
-    url: s.url as string,
-    status: s.status as string,
-    notify: Boolean(s.notify ?? 1),
-    tournament: data.tournament_name || "",
-    player: data.player?.name || "Unknown",
-    rank: data.player?.current_rank || "?",
-    points: calculatePoints(data.matches || []),
-    completedRounds: data.completed_rounds || 0,
-    totalRounds: data.total_rounds || 0,
-  };
-}
 
 app.get("/", async (c) => {
   const { results } = await c.env.DB.prepare(

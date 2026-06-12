@@ -1,10 +1,14 @@
 import { Hono } from "hono";
-// TODO: restore chess/pushover imports when routes are implemented (Tasks 7+)
-// import {
-//   checkForUpdates, fetchPlayerData, calculatePoints,
-//   calculateTotalRatingChange, parseSessionData, type ChessSession,
-// } from "./chess";
-// import { sendPushover } from "./pushover";
+import {
+  // @ts-ignore – used in Task 13 (cron handler)
+  checkForUpdates,
+  fetchPlayerData, calculatePoints,
+  // @ts-ignore – used in Task 13 (cron handler)
+  calculateTotalRatingChange,
+  parseSessionData, type ChessSession,
+} from "./chess";
+// @ts-ignore – used in Tasks 11+ (settings test / poll)
+import { sendPushover } from "./pushover";
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -214,6 +218,142 @@ app.post("/login", async (c) => {
 app.post("/logout", (c) => {
   c.header("Set-Cookie", "session=; HttpOnly; Secure; SameSite=Lax; Max-Age=0; Path=/");
   return c.redirect("/login");
+});
+
+// ── Sessions ──────────────────────────────────────────────────────────────────
+
+function formatSession(s: Record<string, unknown>) {
+  const data = parseSessionData(s as unknown as ChessSession);
+  return {
+    id: s.id as number,
+    url: s.url as string,
+    status: s.status as string,
+    notify: Boolean(s.notify ?? 1),
+    tournament: data.tournament_name || "",
+    player: data.player?.name || "Unknown",
+    rank: data.player?.current_rank || "?",
+    points: calculatePoints(data.matches || []),
+    completedRounds: data.completed_rounds || 0,
+    totalRounds: data.total_rounds || 0,
+  };
+}
+
+app.get("/", async (c) => {
+  const { results } = await c.env.DB.prepare(
+    "SELECT * FROM chess_sessions ORDER BY created_at DESC"
+  ).all<Record<string, unknown>>();
+
+  const [statsRes, notifRes] = await c.env.DB.batch([
+    c.env.DB.prepare("SELECT COUNT(*) as running FROM chess_sessions WHERE status='running'"),
+    c.env.DB.prepare("SELECT COUNT(*) as count FROM notifications WHERE sent=1"),
+  ]);
+  const running = ((statsRes.results[0] ?? {}) as { running: number }).running ?? 0;
+  const notifCount = ((notifRes.results[0] ?? {}) as { count: number }).count ?? 0;
+
+  const creds = await getCredentials(c.env.DB);
+  const isDefault = creds.user === "admin" && creds.pass === "admin";
+
+  const rows = results.map(s => {
+    const fmt = formatSession(s);
+    const rounds = fmt.totalRounds ? `${fmt.completedRounds}/${fmt.totalRounds}` : "—";
+    const notifyToggle = `<form method="POST" action="/sessions/${fmt.id}/toggle-notify" class="inline">
+      <button type="submit" title="${fmt.notify ? "Mute" : "Unmute"}" class="text-lg">${fmt.notify ? "🔔" : "🔕"}</button>
+    </form>`;
+    const stopBtn = fmt.status === "running"
+      ? `<form method="POST" action="/sessions/${fmt.id}/stop" class="inline" onsubmit="return confirm('Stop monitoring this player?')">
+           <button type="submit" class="text-xs text-red-600 hover:text-red-800 font-medium">Stop</button>
+         </form>`
+      : `<span class="text-xs text-gray-400">—</span>`;
+    return `<tr class="border-t border-gray-100 hover:bg-gray-50">
+      <td class="px-4 py-3 text-sm"><a href="/session/${fmt.id}" class="text-blue-600 hover:underline font-medium">${fmt.player}</a></td>
+      <td class="px-4 py-3 text-sm text-gray-600 max-w-xs truncate" title="${fmt.tournament}">${fmt.tournament || "—"}</td>
+      <td class="px-4 py-3 text-sm text-center">#${fmt.rank}</td>
+      <td class="px-4 py-3 text-sm text-center">${fmt.points} · ${rounds}</td>
+      <td class="px-4 py-3 text-center">${statusBadge(fmt.status)}</td>
+      <td class="px-4 py-3 text-center">${notifyToggle}</td>
+      <td class="px-4 py-3 text-center">${stopBtn}</td>
+    </tr>`;
+  }).join("");
+
+  const content = `
+    ${isDefault ? `<div class="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-800">
+      Default credentials in use. <a href="/settings" class="font-medium underline">Change your password in Settings.</a>
+    </div>` : ""}
+    <div class="flex items-center justify-between mb-6">
+      <div>
+        <h1 class="text-2xl font-bold text-gray-900">Sessions</h1>
+        <p class="text-sm text-gray-500 mt-0.5">${running} running · ${notifCount} notifications sent</p>
+      </div>
+      <form method="POST" action="/poll">
+        <button type="submit" class="text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-lg px-4 py-2 transition-colors">Check Now</button>
+      </form>
+    </div>
+    <div class="bg-white rounded-xl border border-gray-200 shadow-sm mb-6">
+      <div class="px-4 py-3 border-b border-gray-100">
+        <h2 class="text-sm font-semibold text-gray-700">Add New Session</h2>
+      </div>
+      <form method="POST" action="/sessions" class="px-4 py-3 flex gap-3">
+        <input name="url" type="url" required
+          placeholder="https://chess-results.com/tnr123.aspx?lan=1&art=9&fed=IND&snr=42"
+          class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+        <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg px-4 py-2 text-sm transition-colors whitespace-nowrap">
+          Add Monitor
+        </button>
+      </form>
+    </div>
+    ${results.length === 0
+      ? `<div class="text-center py-12 text-gray-400">No sessions yet. Paste a chess-results.com player URL above to start monitoring.</div>`
+      : `<div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <table class="w-full">
+            <thead>
+              <tr class="bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
+                <th class="px-4 py-3">Player</th>
+                <th class="px-4 py-3">Tournament</th>
+                <th class="px-4 py-3 text-center">Rank</th>
+                <th class="px-4 py-3 text-center">Pts · Rounds</th>
+                <th class="px-4 py-3 text-center">Status</th>
+                <th class="px-4 py-3 text-center">Notify</th>
+                <th class="px-4 py-3 text-center">Action</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>`}
+  `;
+  return c.html(layout("Sessions", content, "sessions"));
+});
+
+app.post("/sessions", async (c) => {
+  const body = await c.req.parseBody();
+  const url = String(body.url || "").trim();
+  if (!url) return c.redirect("/");
+  const parsed = parseChessUrl(url);
+  if (!parsed) return c.redirect("/");
+  const existing = await c.env.DB.prepare(
+    "SELECT id FROM chess_sessions WHERE url = ? AND status = 'running'"
+  ).bind(url).first();
+  if (existing) return c.redirect("/");
+  const initialData = await fetchPlayerData(parsed.server, parsed.tournament_id, parsed.player_snr, parsed.federation, url);
+  await c.env.DB.prepare(
+    "INSERT INTO chess_sessions (url, tournament_id, player_snr, server, federation, data) VALUES (?, ?, ?, ?, ?, ?)"
+  ).bind(url, parsed.tournament_id, parsed.player_snr, parsed.server, parsed.federation, JSON.stringify(initialData ?? {})).run();
+  return c.redirect("/");
+});
+
+app.post("/sessions/:id/stop", async (c) => {
+  await c.env.DB.prepare(
+    "UPDATE chess_sessions SET status = 'stopped', updated_at = datetime('now') WHERE id = ?"
+  ).bind(c.req.param("id")).run();
+  return c.redirect("/");
+});
+
+app.post("/sessions/:id/toggle-notify", async (c) => {
+  const session = await c.env.DB.prepare("SELECT notify FROM chess_sessions WHERE id = ?")
+    .bind(c.req.param("id")).first<{ notify: number }>();
+  if (!session) return c.redirect("/");
+  await c.env.DB.prepare("UPDATE chess_sessions SET notify = ? WHERE id = ?")
+    .bind(session.notify ? 0 : 1, c.req.param("id")).run();
+  return c.redirect("/");
 });
 
 // ── Export (scheduled handler completed in Task 13) ───────────────────────────

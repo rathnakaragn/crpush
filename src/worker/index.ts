@@ -1,4 +1,7 @@
 import { Hono } from "hono";
+import { eq, and, desc, sql, inArray } from "drizzle-orm";
+import { getDb } from "./drizzle";
+import { chessSessions, notifications, settings, workerLogs } from "./schema";
 import {
   checkForUpdates,
   fetchPlayerData,
@@ -78,10 +81,11 @@ app.get("/login", async (c) => {
 });
 
 app.post("/login", async (c) => {
+  const db = getDb(c.env.DB);
   const body = await c.req.parseBody();
   const username = String(body.username || "");
   const password = String(body.password || "");
-  const creds = await getCredentials(c.env.DB);
+  const creds = await getCredentials(db);
   const usernameMatch = username === creds.user;
   let passwordMatch: boolean;
   if (creds.pass.includes(":") && creds.pass.length > 40) {
@@ -104,22 +108,21 @@ app.post("/logout", (c) => {
 // ── Sessions ──────────────────────────────────────────────────────────────────
 
 app.get("/", async (c) => {
-  const { results } = await c.env.DB.prepare(
-    "SELECT * FROM chess_sessions ORDER BY created_at DESC"
-  ).all<Record<string, unknown>>();
+  const db = getDb(c.env.DB);
 
-  const [statsRes, notifRes] = await c.env.DB.batch([
-    c.env.DB.prepare("SELECT COUNT(*) as running FROM chess_sessions WHERE status='running'"),
-    c.env.DB.prepare("SELECT COUNT(*) as count FROM notifications WHERE sent=1"),
-  ]);
-  const running = ((statsRes.results[0] ?? {}) as { running: number }).running ?? 0;
-  const notifCount = ((notifRes.results[0] ?? {}) as { count: number }).count ?? 0;
+  const results = await db.select().from(chessSessions).orderBy(desc(chessSessions.createdAt));
 
-  const creds = await getCredentials(c.env.DB);
+  const runningRows = await db.select({ count: sql<number>`count(*)` }).from(chessSessions).where(eq(chessSessions.status, "running"));
+  const running = runningRows[0]?.count ?? 0;
+
+  const notifRows = await db.select({ count: sql<number>`count(*)` }).from(notifications).where(eq(notifications.sent, 1));
+  const notifCount = notifRows[0]?.count ?? 0;
+
+  const creds = await getCredentials(db);
   const isDefault = creds.user === "admin" && creds.pass === "admin";
 
   const rows = results.map(s => {
-    const fmt = formatSession(s);
+    const fmt = formatSession(s as unknown as Record<string, unknown>);
     const rounds = fmt.totalRounds ? `${fmt.completedRounds}/${fmt.totalRounds}` : "—";
     const notifyToggle = `<form method="POST" action="/sessions/${fmt.id}/toggle-notify" class="inline">
       <button type="submit" title="${fmt.notify ? "Mute" : "Unmute"}" class="text-lg">${fmt.notify ? "🔔" : "🔕"}</button>
@@ -189,44 +192,50 @@ app.get("/", async (c) => {
 });
 
 app.post("/sessions", async (c) => {
+  const db = getDb(c.env.DB);
   const body = await c.req.parseBody();
   const url = String(body.url || "").trim();
   if (!url) return c.redirect("/");
   const parsed = parseChessUrl(url);
   if (!parsed) return c.redirect("/");
-  const existing = await c.env.DB.prepare(
-    "SELECT id FROM chess_sessions WHERE url = ? AND status = 'running'"
-  ).bind(url).first();
-  if (existing) return c.redirect("/");
+  const existing = await db.select({ id: chessSessions.id }).from(chessSessions)
+    .where(and(eq(chessSessions.url, url), eq(chessSessions.status, "running"))).limit(1);
+  if (existing.length > 0) return c.redirect("/");
   const initialData = await fetchPlayerData(parsed.server, parsed.tournament_id, parsed.player_snr, parsed.federation, url);
-  await c.env.DB.prepare(
-    "INSERT INTO chess_sessions (url, tournament_id, player_snr, server, federation, data) VALUES (?, ?, ?, ?, ?, ?)"
-  ).bind(url, parsed.tournament_id, parsed.player_snr, parsed.server, parsed.federation, JSON.stringify(initialData ?? {})).run();
+  await db.insert(chessSessions).values({
+    url, tournamentId: parsed.tournament_id, playerSnr: parsed.player_snr,
+    server: parsed.server, federation: parsed.federation,
+    data: JSON.stringify(initialData ?? {})
+  });
   return c.redirect("/");
 });
 
 app.post("/sessions/:id/stop", async (c) => {
-  await c.env.DB.prepare(
-    "UPDATE chess_sessions SET status = 'stopped', updated_at = datetime('now') WHERE id = ?"
-  ).bind(c.req.param("id")).run();
+  const db = getDb(c.env.DB);
+  await db.update(chessSessions)
+    .set({ status: "stopped", updatedAt: sql`(datetime('now'))` })
+    .where(eq(chessSessions.id, Number(c.req.param("id"))));
   return c.redirect("/");
 });
 
 app.post("/sessions/:id/toggle-notify", async (c) => {
-  const session = await c.env.DB.prepare("SELECT notify FROM chess_sessions WHERE id = ?")
-    .bind(c.req.param("id")).first<{ notify: number }>();
-  if (!session) return c.redirect("/");
-  await c.env.DB.prepare("UPDATE chess_sessions SET notify = ? WHERE id = ?")
-    .bind(session.notify ? 0 : 1, c.req.param("id")).run();
+  const db = getDb(c.env.DB);
+  const session = await db.select({ notify: chessSessions.notify }).from(chessSessions)
+    .where(eq(chessSessions.id, Number(c.req.param("id")))).limit(1);
+  if (!session[0]) return c.redirect("/");
+  await db.update(chessSessions)
+    .set({ notify: session[0].notify ? 0 : 1 })
+    .where(eq(chessSessions.id, Number(c.req.param("id"))));
   return c.redirect("/");
 });
 
 // ── Session detail ────────────────────────────────────────────────────────────
 
 app.get("/session/:id", async (c) => {
-  const s = await c.env.DB.prepare("SELECT * FROM chess_sessions WHERE id = ?")
-    .bind(c.req.param("id")).first<Record<string, unknown>>();
-  if (!s) return c.redirect("/");
+  const db = getDb(c.env.DB);
+  const rows = await db.select().from(chessSessions).where(eq(chessSessions.id, Number(c.req.param("id")))).limit(1);
+  if (!rows[0]) return c.redirect("/");
+  const s = rows[0];
 
   const data = parseSessionData(s as unknown as ChessSession);
   const ratingEst = calculateTotalRatingChange(
@@ -313,11 +322,15 @@ app.get("/session/:id", async (c) => {
 // ── Notifications ─────────────────────────────────────────────────────────────
 
 app.get("/notifications", async (c) => {
-  const { results } = await c.env.DB.prepare(
-    `SELECT n.*, s.data as session_data FROM notifications n
-     LEFT JOIN chess_sessions s ON n.session_id = s.id
-     ORDER BY n.created_at DESC LIMIT 50`
-  ).all<Record<string, unknown>>();
+  const db = getDb(c.env.DB);
+  const results = await db.select({
+    id: notifications.id, type: notifications.type, title: notifications.title,
+    message: notifications.message, sent: notifications.sent, createdAt: notifications.createdAt,
+    sessionData: chessSessions.data,
+  }).from(notifications)
+    .leftJoin(chessSessions, eq(notifications.sessionId, chessSessions.id))
+    .orderBy(desc(notifications.createdAt))
+    .limit(50);
 
   const typeBadge = (t: string) => {
     const styles: Record<string, string> = {
@@ -329,12 +342,12 @@ app.get("/notifications", async (c) => {
   };
 
   const rows = results.map(n => {
-    const sessionData = parseSessionData({ data: n.session_data as string } as ChessSession);
+    const sessionData = parseSessionData({ data: n.sessionData as string } as ChessSession);
     const sentBadge = n.sent
       ? `<span class="text-green-600 text-xs">✓ sent</span>`
       : `<span class="text-gray-400 text-xs">unsent</span>`;
     return `<tr class="border-t border-gray-100 hover:bg-gray-50">
-      <td class="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">${String(n.created_at).slice(0, 16).replace("T", " ")}</td>
+      <td class="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">${String(n.createdAt).slice(0, 16).replace("T", " ")}</td>
       <td class="px-4 py-3">${typeBadge(String(n.type))}</td>
       <td class="px-4 py-3 text-sm font-medium text-gray-900">${escapeHtml(n.title)}</td>
       <td class="px-4 py-3 text-xs text-gray-500">
@@ -373,12 +386,11 @@ app.get("/notifications", async (c) => {
 // ── Logs ──────────────────────────────────────────────────────────────────────
 
 app.get("/logs", async (c) => {
-  const { results } = await c.env.DB.prepare(
-    "SELECT * FROM worker_logs ORDER BY created_at DESC LIMIT 100"
-  ).all<Record<string, unknown>>();
+  const db = getDb(c.env.DB);
+  const logs = await db.select().from(workerLogs).orderBy(desc(workerLogs.createdAt)).limit(100);
 
-  const rows = results.map(l => `<tr class="border-t border-gray-100 hover:bg-gray-50">
-    <td class="px-4 py-2 text-xs text-gray-400 whitespace-nowrap">${String(l.created_at).slice(0, 19).replace("T", " ")}</td>
+  const rows = logs.map(l => `<tr class="border-t border-gray-100 hover:bg-gray-50">
+    <td class="px-4 py-2 text-xs text-gray-400 whitespace-nowrap">${String(l.createdAt).slice(0, 19).replace("T", " ")}</td>
     <td class="px-4 py-2">${levelBadge(String(l.level))}</td>
     <td class="px-4 py-2 text-xs text-gray-500">${escapeHtml(l.source)}</td>
     <td class="px-4 py-2 text-sm text-gray-700">${escapeHtml(l.message)}</td>
@@ -391,7 +403,7 @@ app.get("/logs", async (c) => {
         <button type="submit" class="text-sm text-red-600 hover:text-red-800 font-medium">Clear All</button>
       </form>
     </div>
-    ${results.length === 0
+    ${logs.length === 0
       ? `<div class="text-center py-12 text-gray-400">No logs yet.</div>`
       : `<div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
           <table class="w-full">
@@ -411,7 +423,8 @@ app.get("/logs", async (c) => {
 });
 
 app.post("/logs/clear", async (c) => {
-  await c.env.DB.prepare("DELETE FROM worker_logs").run();
+  const db = getDb(c.env.DB);
+  await db.delete(workerLogs);
   return c.redirect("/logs");
 });
 
@@ -424,8 +437,9 @@ const DEFAULT_SETTINGS: Record<string, string> = {
 };
 
 app.get("/settings", async (c) => {
-  const { results } = await c.env.DB.prepare("SELECT key, value FROM settings").all<{ key: string; value: string }>();
-  const map = Object.fromEntries(results.map(r => [r.key, r.value]));
+  const db = getDb(c.env.DB);
+  const allSettings = await db.select().from(settings);
+  const map = Object.fromEntries(allSettings.map(r => [r.key, r.value]));
   const s = { ...DEFAULT_SETTINGS, ...map };
 
   const saved = c.req.query("saved");
@@ -519,33 +533,39 @@ app.get("/settings", async (c) => {
 });
 
 app.post("/settings", async (c) => {
+  const db = getDb(c.env.DB);
   const body = await c.req.parseBody();
   const allowed = ["pushover_app_token", "pushover_user_key", "timezone", "night_start_hour", "night_end_hour"];
-  const stmts = allowed
-    .filter(k => body[k] !== undefined)
-    .map(k => c.env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").bind(k, String(body[k])));
-  if (stmts.length > 0) await c.env.DB.batch(stmts);
+  for (const k of allowed) {
+    if (body[k] !== undefined) {
+      await db.insert(settings).values({ key: k, value: String(body[k]) }).onConflictDoUpdate({
+        target: settings.key, set: { value: String(body[k]) }
+      });
+    }
+  }
   return c.redirect("/settings?saved=1");
 });
 
 app.post("/settings/test", async (c) => {
-  const appToken = await getSetting(c.env.DB, "pushover_app_token");
-  const userKey = await getSetting(c.env.DB, "pushover_user_key");
+  const db = getDb(c.env.DB);
+  const appToken = await getSetting(db, "pushover_app_token");
+  const userKey = await getSetting(db, "pushover_user_key");
   if (!appToken || !userKey) return c.redirect("/settings?testerror=1");
   const ok = await sendPushover(appToken, userKey, "OpenCRBot Test", "Pushover is configured correctly!", "https://pushover.net");
   return c.redirect(ok ? "/settings?testok=1" : "/settings?testerror=1");
 });
 
 app.post("/settings/password", async (c) => {
+  const db = getDb(c.env.DB);
   const body = await c.req.parseBody();
   const username = String(body.username || "").trim();
   const password = String(body.password || "").trim();
   if (!username || !password) return c.redirect("/settings");
   const hashedPassword = await hashPassword(password);
-  await c.env.DB.batch([
-    c.env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").bind("dashboard_user", username),
-    c.env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").bind("dashboard_password", hashedPassword),
-  ]);
+  await db.insert(settings).values({ key: "dashboard_user", value: username })
+    .onConflictDoUpdate({ target: settings.key, set: { value: username } });
+  await db.insert(settings).values({ key: "dashboard_password", value: hashedPassword })
+    .onConflictDoUpdate({ target: settings.key, set: { value: hashedPassword } });
   c.header("Set-Cookie", "session=; HttpOnly; Secure; SameSite=Lax; Max-Age=0; Path=/");
   return c.redirect("/login");
 });
@@ -553,8 +573,9 @@ app.post("/settings/password", async (c) => {
 // ── Poll ──────────────────────────────────────────────────────────────────────
 
 app.post("/poll", async (c) => {
-  const appToken = await getSetting(c.env.DB, "pushover_app_token");
-  const userKey = await getSetting(c.env.DB, "pushover_user_key");
+  const db = getDb(c.env.DB);
+  const appToken = await getSetting(db, "pushover_app_token");
+  const userKey = await getSetting(db, "pushover_user_key");
 
   const sendFn = async (title: string, message: string, url: string) => {
     if (!appToken || !userKey) return false;
@@ -562,12 +583,12 @@ app.post("/poll", async (c) => {
   };
 
   const logFn = (msg: string, level: "info" | "warn" | "error" = "info", source = "poll") =>
-    writeLog(c.env.DB, msg, level, source);
+    writeLog(db, msg, level, source);
 
-  await writeLog(c.env.DB, "Manual check triggered", "info", "poll");
+  await writeLog(db, "Manual check triggered", "info", "poll");
   c.executionCtx.waitUntil(
-    checkForUpdates(c.env.DB, sendFn, logFn).then(result =>
-      writeLog(c.env.DB, `Manual check done — ${result.sessions} session(s), ${result.notifications} notification(s)`, "info", "poll")
+    checkForUpdates(db, sendFn, logFn).then(result =>
+      writeLog(db, `Manual check done — ${result.sessions} session(s), ${result.notifications} notification(s)`, "info", "poll")
     )
   );
   return c.redirect("/");
@@ -578,14 +599,13 @@ app.post("/poll", async (c) => {
 export default {
   fetch: app.fetch,
   async scheduled(_event: ScheduledEvent, env: Env, _ctx: ExecutionContext) {
-    const [tzRes, nightStartRes, nightEndRes] = await env.DB.batch([
-      env.DB.prepare("SELECT value FROM settings WHERE key = 'timezone'"),
-      env.DB.prepare("SELECT value FROM settings WHERE key = 'night_start_hour'"),
-      env.DB.prepare("SELECT value FROM settings WHERE key = 'night_end_hour'"),
-    ]);
-    const timezone = (tzRes.results[0] as { value: string } | undefined)?.value || "Asia/Kolkata";
-    const nightStart = parseInt((nightStartRes.results[0] as { value: string } | undefined)?.value || "23", 10);
-    const nightEnd = parseInt((nightEndRes.results[0] as { value: string } | undefined)?.value || "6", 10);
+    const db = getDb(env.DB);
+    const cronSettings = await db.select().from(settings)
+      .where(inArray(settings.key, ["timezone", "night_start_hour", "night_end_hour", "pushover_app_token", "pushover_user_key"]));
+    const settingsMap = Object.fromEntries(cronSettings.map(r => [r.key, r.value]));
+    const timezone = settingsMap["timezone"] || "Asia/Kolkata";
+    const nightStart = parseInt(settingsMap["night_start_hour"] || "23", 10);
+    const nightEnd = parseInt(settingsMap["night_end_hour"] || "6", 10);
 
     const hour = parseInt(
       new Date().toLocaleString("en-US", { timeZone: timezone, hour: "numeric", hour12: false }),
@@ -596,14 +616,12 @@ export default {
       : hour >= nightStart && hour < nightEnd;
 
     if (isNight) {
-      await writeLog(env.DB, `Cron skipped — quiet hours (hour=${hour}, quiet=${nightStart}h–${nightEnd}h)`, "info", "cron");
+      await writeLog(db, `Cron skipped — quiet hours (hour=${hour}, quiet=${nightStart}h–${nightEnd}h)`, "info", "cron");
       return;
     }
 
-    const appToken = (await env.DB.prepare("SELECT value FROM settings WHERE key = 'pushover_app_token'")
-      .first<{ value: string }>())?.value || "";
-    const userKey = (await env.DB.prepare("SELECT value FROM settings WHERE key = 'pushover_user_key'")
-      .first<{ value: string }>())?.value || "";
+    const appToken = settingsMap["pushover_app_token"] || "";
+    const userKey = settingsMap["pushover_user_key"] || "";
 
     const sendFn = async (title: string, message: string, url: string) => {
       if (!appToken || !userKey) return false;
@@ -611,9 +629,9 @@ export default {
     };
 
     const logFn = (msg: string, level: "info" | "warn" | "error" = "info", source = "cron") =>
-      writeLog(env.DB, msg, level, source);
+      writeLog(db, msg, level, source);
 
-    const result = await checkForUpdates(env.DB, sendFn, logFn);
-    await writeLog(env.DB, `Cron done — ${result.sessions} session(s), ${result.notifications} notification(s)`, "info", "cron");
+    const result = await checkForUpdates(db, sendFn, logFn);
+    await writeLog(db, `Cron done — ${result.sessions} session(s), ${result.notifications} notification(s)`, "info", "cron");
   },
 };

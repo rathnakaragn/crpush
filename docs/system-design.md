@@ -1,6 +1,6 @@
 # System Design — crpush
 
-**Version:** 1.0  
+**Version:** 1.2.1  
 **Date:** 2026-06-12
 
 ---
@@ -161,25 +161,24 @@ Notifications are stored with a unique constraint on `(session_id, type, round_n
 
 ```
 Login flow:
-  POST /login { username, password }
+  POST /login { password }
     │
-    ├─ getCredentials(db) → { user, pass } from D1 settings
-    ├─ if pass contains ":" and length > 40 → PBKDF2 verify
-    │  else → plain-text compare (bootstrap admin/admin only)
-    ├─ on success → createSessionCookie(key, username)
-    │    ├─ payload = base64(username:expiry_unix)
-    │    └─ cookie = payload + "." + HMAC-SHA256(payload)
+    ├─ compare password with c.env.AUTH_PASSWORD (Cloudflare Workers secret)
+    ├─ on success → makeSessionCookie(AUTH_PASSWORD)
+    │    ├─ payload = unix expiry timestamp (string)
+    │    └─ cookie  = payload + "." + b64url(HMAC-SHA256(payload, AUTH_PASSWORD))
     └─ Set-Cookie: session=<cookie>; HttpOnly; Secure; SameSite=Lax; Max-Age=604800
 
 Subsequent requests:
-  Auth middleware → verifySessionCookie()
+  Auth middleware → verifySessionCookie(cookie, AUTH_PASSWORD)
     ├─ split on last "."
-    ├─ re-verify HMAC signature
-    ├─ decode payload, check expiry
-    └─ return username or null → redirect /login
+    ├─ restore base64 padding, verify HMAC signature
+    ├─ check expiry timestamp > now
+    └─ false → redirect /login
 ```
 
-Cookie secret is auto-generated on first boot and stored in D1 `settings`. It is never exposed in the dashboard.
+Password is stored as a Workers secret (`AUTH_PASSWORD`), never in D1.
+Rotating `AUTH_PASSWORD` via `wrangler secret put` immediately invalidates all sessions.
 
 ---
 
@@ -238,6 +237,7 @@ All state lives in Cloudflare D1 (SQLite at edge). There is no in-memory cache �
 ```json
 {
   "tournament_name": "string",
+  "time_control": "90min/40moves+30min+30sec",
   "total_rounds": 9,
   "completed_rounds": 5,
   "player": { "name": "...", "current_rank": "12", "starting_rank": "15", "rating": 1850, "kFactor": 20 },

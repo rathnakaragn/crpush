@@ -1,6 +1,6 @@
 # Product Requirements Document — crpush
 
-**Version:** 1.0  
+**Version:** 1.2.1  
 **Date:** 2026-06-12  
 **Owner:** rathnakaragn
 
@@ -96,7 +96,7 @@ Server-rendered HTML dashboard (no JS framework, Tailwind CSS via CDN):
 | Page | Purpose |
 |------|---------|
 | `/` | Sessions list — player, tournament, rank, score, status, mute toggle, stop action |
-| `/session/:id` | Session detail — player stats, match history table, rating estimate |
+| `/session/:id` | Session detail — player stats, time control, match history table, rating estimate |
 | `/notifications` | Last 50 notifications with type badge, title, message, sent status |
 | `/logs` | Last 100 worker log lines with level badge, source, message; clear button |
 | `/settings` | Pushover credentials, quiet hours config, change credentials |
@@ -106,11 +106,10 @@ Server-rendered HTML dashboard (no JS framework, Tailwind CSS via CDN):
 
 ### 6.6 Authentication
 
-- Single admin account with username/password
-- Passwords stored as PBKDF2-SHA256 with random salt (100,000 iterations)
-- Plain-text password support for the default `admin/admin` bootstrap (migrated to hashed on first credential change)
-- Session cookie: HMAC-SHA256 signed, 7-day expiry, `HttpOnly; Secure; SameSite=Lax`
-- Default credentials warning shown on dashboard until changed
+- Single-user password auth via `AUTH_PASSWORD` Cloudflare Workers secret
+- Password set once with `wrangler secret put AUTH_PASSWORD` — no UI credential management
+- Session cookie: HMAC-SHA256 signed (using `AUTH_PASSWORD` as key), 7-day expiry, `HttpOnly; Secure; SameSite=Lax`
+- Rotating `AUTH_PASSWORD` automatically invalidates all existing sessions
 
 ### 6.7 URL Parsing
 

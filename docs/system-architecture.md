@@ -1,6 +1,6 @@
 # System Architecture — crpush
 
-**Version:** 1.0  
+**Version:** 1.2.1  
 **Date:** 2026-06-12
 
 ---
@@ -28,11 +28,11 @@ crpush follows a **monolithic edge architecture**. A single Cloudflare Worker ha
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────────┐   │
 │  │  chess.ts    │  │ pushover.ts  │  │       auth.ts            │   │
 │  │              │  │              │  │                          │   │
-│  │ scraper      │  │ sendPushover │  │ getCookieSecret          │   │
-│  │ checkForUpdates  │              │  │ createSessionCookie      │   │
-│  │ parseHtml    │  └──────────────┘  │ verifySessionCookie      │   │
-│  │ calcPoints   │                    │ hashPassword             │   │
-│  │ calcRating   │  ┌──────────────┐  │ verifyPassword           │   │
+│  │ scraper      │  │ sendPushover │  │ b64url                   │   │
+│  │ checkForUpdates  │              │  │ cookieKey                │   │
+│  │ parseHtml    │  └──────────────┘  │ makeSessionCookie        │   │
+│  │ calcPoints   │                    │ verifySessionCookie      │   │
+│  │ calcRating   │  ┌──────────────┐  │                          │   │
 │  └──────────────┘  │  templates.ts│  └──────────────────────────┘   │
 │                    │              │                                  │
 │  ┌──────────────┐  │ layout()     │  ┌──────────────────────────┐   │
@@ -63,8 +63,8 @@ crpush follows a **monolithic edge architecture**. A single Cloudflare Worker ha
 | `index.ts` | Hono app bootstrap, all route handlers, scheduled handler, HTML templates for each page |
 | `chess.ts` | chess-results.com HTTP fetching, HTML parsing, change detection, notification formatting, poll orchestration |
 | `pushover.ts` | Single function: POST to Pushover REST API |
-| `auth.ts` | Cookie creation/verification (HMAC-SHA256), password hashing/verification (PBKDF2) |
-| `db.ts` | D1 helper functions: `getSetting`, `writeLog`, `getCredentials`, `parseChessUrl` |
+| `auth.ts` | Cookie creation/verification (HMAC-SHA256 signed with `AUTH_PASSWORD` secret) |
+| `db.ts` | D1 helper functions: `getSetting`, `writeLog`, `parseChessUrl` |
 | `drizzle.ts` | Drizzle ORM instance factory (`getDb`) |
 | `schema.ts` | Drizzle table definitions (single source of truth for schema) |
 | `templates.ts` | Shared HTML helpers: `layout`, `escapeHtml`, `statusBadge`, `levelBadge`, `formatSession` |
@@ -118,9 +118,8 @@ index.ts
   ├── ./chess              (checkForUpdates, fetchPlayerData, calculatePoints,
   │                         calculateTotalRatingChange, parseSessionData, ChessSession)
   ├── ./pushover           (sendPushover)
-  ├── ./auth               (getCookieSecret, createSessionCookie, getAuthUser,
-  │                         hashPassword, verifyPassword)
-  ├── ./db                 (getSetting, writeLog, getCredentials, parseChessUrl)
+  ├── ./auth               (b64url, cookieKey, makeSessionCookie, verifySessionCookie)
+  ├── ./db                 (getSetting, writeLog, parseChessUrl)
   └── ./templates          (escapeHtml, statusBadge, levelBadge, layout, formatSession)
 
 chess.ts
@@ -218,7 +217,7 @@ TournamentStanding   — one row from the standings table
 Notification         — in-memory event (type + old/new data + match)
 PollResult           — { sessions, notifications } return from checkForUpdates
 AppDB                — Drizzle return type (inferred, not hand-written)
-Env                  — Cloudflare binding types (D1Database)
+Env                  — Cloudflare binding types (D1Database, AUTH_PASSWORD string)
 ```
 
 `ChessSession` uses `snake_case` field names (matching the original SQL schema) while Drizzle schema uses `camelCase`. The mapping is done once in `checkForUpdates` via an explicit `.map(r => ({ ... }))`.
@@ -230,12 +229,11 @@ Env                  — Cloudflare binding types (D1Database)
 | Concern | Approach |
 |---------|---------|
 | Authentication | HMAC-SHA256 signed session cookie; 7-day expiry |
-| Password storage | PBKDF2-SHA256, random 16-byte salt, 100k iterations |
+| Password storage | `AUTH_PASSWORD` Cloudflare Workers secret — never stored in D1 or logs |
 | XSS prevention | All user-controlled data passed through `escapeHtml()` before HTML insertion |
 | CSRF | All state-mutating routes are POST; session cookie is `SameSite=Lax` |
 | Cookie theft | `HttpOnly; Secure` flags; no JS access to cookie |
-| Secret storage | Cookie secret lives in D1, never in Worker env vars or logs |
-| Plaintext fallback | Only for bootstrap `admin/admin`; replaced with PBKDF2 hash on first credential change |
+| Secret rotation | Changing `AUTH_PASSWORD` via `wrangler secret put` instantly invalidates all sessions |
 
 ---
 
@@ -265,23 +263,32 @@ No staging environment. Deploy directly to production on main.
 
 ## 11. Testing Architecture
 
-Tests live alongside source files as `*.test.ts`. Only pure functions are tested — no Worker runtime, no D1, no fetch mocking.
+Two test suites run independently:
 
-| Test file | What is tested |
-|-----------|---------------|
-| `auth.test.ts` | `b64url`, cookie create/verify, password hash/verify |
-| `chess.test.ts` | `parseSessionData`, `calculatePoints`, `calculateTotalRatingChange`, HTML parsers |
-| `db.test.ts` | `parseChessUrl` |
-| `pushover.test.ts` | `sendPushover` (with fetch mock) |
+### Unit tests (`npm test`)
 
-**Test runner:** Vitest, `node` environment (not Workers environment).
+Pure function tests only — no Worker runtime, no D1, no network.
 
-```bash
-npm test          # run once
-npm run test:watch  # watch mode
-```
+| Test file | Tests | What is tested |
+|-----------|-------|---------------|
+| `auth.test.ts` | 12 | `b64url`, `makeSessionCookie`, `verifySessionCookie` |
+| `chess.test.ts` | 15 | `parseSessionData`, `calculatePoints`, `calculateTotalRatingChange` |
+| `db.test.ts` | 7 | `parseChessUrl` |
+| `pushover.test.ts` | 4 | `sendPushover` (fetch mock) |
 
-Integration testing (end-to-end cron/scraping) is done manually via `npm run dev` (local wrangler dev server) and the "Check Now" button in the dashboard.
+**Runner:** Vitest, `node` environment (`vitest.config.ts`)
+
+### Integration tests (`npm run test:integration`)
+
+HTTP route tests running inside a real Workers runtime via `@cloudflare/vitest-pool-workers` (Miniflare) with an in-memory D1 database.
+
+| Test file | Tests | What is tested |
+|-----------|-------|---------------|
+| `app.integration.test.ts` | 22 | Auth middleware, login/logout, sessions CRUD, notifications, logs, settings |
+
+**Runner:** Vitest, Workers environment (`vitest.integration.config.ts`)  
+**Setup:** `integration-setup.ts` recreates all D1 tables before each test for isolation  
+**Auth:** `AUTH_PASSWORD` injected as `"test-password"` via miniflare bindings
 
 ---
 

@@ -7,6 +7,15 @@ import {
 } from "./chess";
 import { sendPushover } from "./pushover";
 
+function escapeHtml(s: unknown): string {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#x27;");
+}
+
 const app = new Hono<{ Bindings: Env }>();
 
 // ── Cookie auth ───────────────────────────────────────────────────────────────
@@ -132,7 +141,7 @@ export function layout(title: string, content: string, activePage = ""): string 
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${title} — OpenCRBot</title>
+  <title>${escapeHtml(title)} — OpenCRBot</title>
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-gray-50 min-h-screen">
@@ -262,10 +271,10 @@ app.get("/", async (c) => {
          </form>`
       : `<span class="text-xs text-gray-400">—</span>`;
     return `<tr class="border-t border-gray-100 hover:bg-gray-50">
-      <td class="px-4 py-3 text-sm"><a href="/session/${fmt.id}" class="text-blue-600 hover:underline font-medium">${fmt.player}</a></td>
-      <td class="px-4 py-3 text-sm text-gray-600 max-w-xs truncate" title="${fmt.tournament}">${fmt.tournament || "—"}</td>
-      <td class="px-4 py-3 text-sm text-center">#${fmt.rank}</td>
-      <td class="px-4 py-3 text-sm text-center">${fmt.points} · ${rounds}</td>
+      <td class="px-4 py-3 text-sm"><a href="/session/${escapeHtml(fmt.id)}" class="text-blue-600 hover:underline font-medium">${escapeHtml(fmt.player)}</a></td>
+      <td class="px-4 py-3 text-sm text-gray-600 max-w-xs truncate" title="${escapeHtml(fmt.tournament)}">${escapeHtml(fmt.tournament) || "—"}</td>
+      <td class="px-4 py-3 text-sm text-center">#${escapeHtml(fmt.rank)}</td>
+      <td class="px-4 py-3 text-sm text-center">${escapeHtml(fmt.points)} · ${rounds}</td>
       <td class="px-4 py-3 text-center">${statusBadge(fmt.status)}</td>
       <td class="px-4 py-3 text-center">${notifyToggle}</td>
       <td class="px-4 py-3 text-center">${stopBtn}</td>
@@ -370,11 +379,11 @@ app.get("/session/:id", async (c) => {
     const outcome = m.result === "1" ? "Win" : m.result === "0" ? "Loss" : m.result ? "Draw" : "—";
     const cls = m.result === "1" ? "text-green-700 font-medium" : m.result === "0" ? "text-red-700 font-medium" : "text-gray-700";
     return `<tr class="border-t border-gray-100 hover:bg-gray-50">
-      <td class="px-4 py-2 text-sm text-center">${m.round_number}</td>
-      <td class="px-4 py-2 text-sm">${m.opponent_name}</td>
-      <td class="px-4 py-2 text-sm text-center">${m.opponent_rating || "—"}</td>
-      <td class="px-4 py-2 text-sm text-center">${m.color || "—"}</td>
-      <td class="px-4 py-2 text-sm text-center">${m.board || "—"}</td>
+      <td class="px-4 py-2 text-sm text-center">${escapeHtml(m.round_number)}</td>
+      <td class="px-4 py-2 text-sm">${escapeHtml(m.opponent_name)}</td>
+      <td class="px-4 py-2 text-sm text-center">${escapeHtml(m.opponent_rating) || "—"}</td>
+      <td class="px-4 py-2 text-sm text-center">${escapeHtml(m.color) || "—"}</td>
+      <td class="px-4 py-2 text-sm text-center">${escapeHtml(m.board) || "—"}</td>
       <td class="px-4 py-2 text-sm text-center ${cls}">${outcome}</td>
     </tr>`;
   }).join("");
@@ -391,18 +400,18 @@ app.get("/session/:id", async (c) => {
     <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6 mb-6">
       <div class="flex items-start justify-between">
         <div>
-          <h1 class="text-2xl font-bold text-gray-900">${data.player?.name || "Unknown"}</h1>
-          <p class="text-gray-500 mt-0.5">${data.tournament_name || "Tournament"}</p>
+          <h1 class="text-2xl font-bold text-gray-900">${escapeHtml(data.player?.name) || "Unknown"}</h1>
+          <p class="text-gray-500 mt-0.5">${escapeHtml(data.tournament_name) || "Tournament"}</p>
         </div>
         <div class="flex items-center gap-2">
           ${statusBadge(s.status as string)}
-          <a href="${s.url as string}" target="_blank" rel="noopener" class="text-xs text-blue-600 hover:underline">chess-results.com ↗</a>
+          <a href="${escapeHtml(s.url as string)}" target="_blank" rel="noopener" class="text-xs text-blue-600 hover:underline">chess-results.com ↗</a>
         </div>
       </div>
       <div class="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-4">
         <div class="bg-gray-50 rounded-lg p-3">
           <div class="text-xs text-gray-500 mb-1">Current Rank</div>
-          <div class="text-xl font-bold text-gray-900">#${data.player?.current_rank || "?"}</div>
+          <div class="text-xl font-bold text-gray-900">#${escapeHtml(data.player?.current_rank) || "?"}</div>
         </div>
         <div class="bg-gray-50 rounded-lg p-3">
           <div class="text-xs text-gray-500 mb-1">Points</div>
@@ -410,7 +419,7 @@ app.get("/session/:id", async (c) => {
         </div>
         <div class="bg-gray-50 rounded-lg p-3">
           <div class="text-xs text-gray-500 mb-1">Rating</div>
-          <div class="text-xl font-bold text-gray-900">${data.player?.rating || "—"}</div>
+          <div class="text-xl font-bold text-gray-900">${escapeHtml(data.player?.rating) || "—"}</div>
         </div>
         <div class="bg-gray-50 rounded-lg p-3">
           <div class="text-xs text-gray-500 mb-1">Rating ±</div>
@@ -439,7 +448,7 @@ app.get("/session/:id", async (c) => {
         </div>`
       : `<div class="text-center py-8 text-gray-400">No matches yet.</div>`}
   `;
-  return c.html(layout(data.player?.name || "Session", content, "sessions"));
+  return c.html(layout(data.player?.name || "Session", content, "sessions")); // title is escaped inside layout()
 });
 
 // ── Notifications ─────────────────────────────────────────────────────────────
@@ -468,10 +477,10 @@ app.get("/notifications", async (c) => {
     return `<tr class="border-t border-gray-100 hover:bg-gray-50">
       <td class="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">${String(n.created_at).slice(0, 16).replace("T", " ")}</td>
       <td class="px-4 py-3">${typeBadge(String(n.type))}</td>
-      <td class="px-4 py-3 text-sm font-medium text-gray-900">${n.title}</td>
+      <td class="px-4 py-3 text-sm font-medium text-gray-900">${escapeHtml(n.title)}</td>
       <td class="px-4 py-3 text-xs text-gray-500">
-        <div class="font-medium mb-0.5">${sessionData.player?.name || "Unknown"}</div>
-        <pre class="whitespace-pre-wrap text-gray-600">${String(n.message)}</pre>
+        <div class="font-medium mb-0.5">${escapeHtml(sessionData.player?.name) || "Unknown"}</div>
+        <pre class="whitespace-pre-wrap text-gray-600">${escapeHtml(String(n.message))}</pre>
       </td>
       <td class="px-4 py-3 text-center">${sentBadge}</td>
     </tr>`;
@@ -512,8 +521,8 @@ app.get("/logs", async (c) => {
   const rows = results.map(l => `<tr class="border-t border-gray-100 hover:bg-gray-50">
     <td class="px-4 py-2 text-xs text-gray-400 whitespace-nowrap">${String(l.created_at).slice(0, 19).replace("T", " ")}</td>
     <td class="px-4 py-2">${levelBadge(String(l.level))}</td>
-    <td class="px-4 py-2 text-xs text-gray-500">${l.source}</td>
-    <td class="px-4 py-2 text-sm text-gray-700">${l.message}</td>
+    <td class="px-4 py-2 text-xs text-gray-500">${escapeHtml(l.source)}</td>
+    <td class="px-4 py-2 text-sm text-gray-700">${escapeHtml(l.message)}</td>
   </tr>`).join("");
 
   const content = `
@@ -578,14 +587,14 @@ app.get("/settings", async (c) => {
         <div class="space-y-4">
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">App Token</label>
-            <input name="pushover_app_token" type="text" value="${map.pushover_app_token || ""}"
+            <input name="pushover_app_token" type="text" value="${escapeHtml(map.pushover_app_token || "")}"
               placeholder="azGDORePK8gMaC0QOYAMyEEuzJnyUi"
               class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
             <p class="text-xs text-gray-400 mt-1">From pushover.net/apps — create an application for OpenCRBot</p>
           </div>
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">User Key</label>
-            <input name="pushover_user_key" type="text" value="${map.pushover_user_key || ""}"
+            <input name="pushover_user_key" type="text" value="${escapeHtml(map.pushover_user_key || "")}"
               placeholder="uQiRzpo4DXghDmr9QzzfQu"
               class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
             <p class="text-xs text-gray-400 mt-1">From your Pushover account dashboard</p>
@@ -599,17 +608,17 @@ app.get("/settings", async (c) => {
         <div class="grid grid-cols-3 gap-4">
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">Timezone</label>
-            <input name="timezone" type="text" value="${s.timezone}"
+            <input name="timezone" type="text" value="${escapeHtml(s.timezone)}"
               class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
           </div>
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">Start Hour (24h)</label>
-            <input name="night_start_hour" type="number" min="0" max="23" value="${s.night_start_hour}"
+            <input name="night_start_hour" type="number" min="0" max="23" value="${escapeHtml(s.night_start_hour)}"
               class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
           </div>
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">End Hour (24h)</label>
-            <input name="night_end_hour" type="number" min="0" max="23" value="${s.night_end_hour}"
+            <input name="night_end_hour" type="number" min="0" max="23" value="${escapeHtml(s.night_end_hour)}"
               class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
           </div>
         </div>

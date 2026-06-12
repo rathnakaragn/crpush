@@ -444,6 +444,111 @@ app.get("/session/:id", async (c) => {
   return c.html(layout(data.player?.name || "Session", content, "sessions"));
 });
 
+// ── Notifications ─────────────────────────────────────────────────────────────
+
+app.get("/notifications", async (c) => {
+  const { results } = await c.env.DB.prepare(
+    `SELECT n.*, s.data as session_data FROM notifications n
+     LEFT JOIN chess_sessions s ON n.session_id = s.id
+     ORDER BY n.created_at DESC LIMIT 50`
+  ).all<Record<string, unknown>>();
+
+  const typeBadge = (t: string) => {
+    const styles: Record<string, string> = {
+      pairing: "bg-purple-100 text-purple-800",
+      result: "bg-blue-100 text-blue-800",
+      completion: "bg-green-100 text-green-800",
+    };
+    return `<span class="px-2 py-0.5 rounded text-xs font-medium ${styles[t] ?? "bg-gray-100 text-gray-700"}">${t}</span>`;
+  };
+
+  const rows = results.map(n => {
+    const sessionData = parseSessionData({ data: n.session_data as string } as ChessSession);
+    const sentBadge = n.sent
+      ? `<span class="text-green-600 text-xs">✓ sent</span>`
+      : `<span class="text-gray-400 text-xs">unsent</span>`;
+    return `<tr class="border-t border-gray-100 hover:bg-gray-50">
+      <td class="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">${String(n.created_at).slice(0, 16).replace("T", " ")}</td>
+      <td class="px-4 py-3">${typeBadge(String(n.type))}</td>
+      <td class="px-4 py-3 text-sm font-medium text-gray-900">${n.title}</td>
+      <td class="px-4 py-3 text-xs text-gray-500">
+        <div class="font-medium mb-0.5">${sessionData.player?.name || "Unknown"}</div>
+        <pre class="whitespace-pre-wrap text-gray-600">${String(n.message)}</pre>
+      </td>
+      <td class="px-4 py-3 text-center">${sentBadge}</td>
+    </tr>`;
+  }).join("");
+
+  const content = `
+    <div class="flex items-center justify-between mb-6">
+      <h1 class="text-2xl font-bold text-gray-900">Notifications</h1>
+      <span class="text-sm text-gray-500">Last 50</span>
+    </div>
+    ${results.length === 0
+      ? `<div class="text-center py-12 text-gray-400">No notifications yet.</div>`
+      : `<div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <table class="w-full">
+            <thead>
+              <tr class="bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
+                <th class="px-4 py-3">Time</th>
+                <th class="px-4 py-3">Type</th>
+                <th class="px-4 py-3">Title</th>
+                <th class="px-4 py-3">Message</th>
+                <th class="px-4 py-3 text-center">Sent</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>`}
+  `;
+  return c.html(layout("Notifications", content, "notifications"));
+});
+
+// ── Logs ──────────────────────────────────────────────────────────────────────
+
+app.get("/logs", async (c) => {
+  const { results } = await c.env.DB.prepare(
+    "SELECT * FROM worker_logs ORDER BY created_at DESC LIMIT 100"
+  ).all<Record<string, unknown>>();
+
+  const rows = results.map(l => `<tr class="border-t border-gray-100 hover:bg-gray-50">
+    <td class="px-4 py-2 text-xs text-gray-400 whitespace-nowrap">${String(l.created_at).slice(0, 19).replace("T", " ")}</td>
+    <td class="px-4 py-2">${levelBadge(String(l.level))}</td>
+    <td class="px-4 py-2 text-xs text-gray-500">${l.source}</td>
+    <td class="px-4 py-2 text-sm text-gray-700">${l.message}</td>
+  </tr>`).join("");
+
+  const content = `
+    <div class="flex items-center justify-between mb-6">
+      <h1 class="text-2xl font-bold text-gray-900">Worker Logs</h1>
+      <form method="POST" action="/logs/clear" onsubmit="return confirm('Clear all logs?')">
+        <button type="submit" class="text-sm text-red-600 hover:text-red-800 font-medium">Clear All</button>
+      </form>
+    </div>
+    ${results.length === 0
+      ? `<div class="text-center py-12 text-gray-400">No logs yet.</div>`
+      : `<div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <table class="w-full">
+            <thead>
+              <tr class="bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
+                <th class="px-4 py-3">Time</th>
+                <th class="px-4 py-3">Level</th>
+                <th class="px-4 py-3">Source</th>
+                <th class="px-4 py-3">Message</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>`}
+  `;
+  return c.html(layout("Logs", content, "logs"));
+});
+
+app.post("/logs/clear", async (c) => {
+  await c.env.DB.prepare("DELETE FROM worker_logs").run();
+  return c.redirect("/logs");
+});
+
 // ── Export (scheduled handler completed in Task 13) ───────────────────────────
 
 export default {

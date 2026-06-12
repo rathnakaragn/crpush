@@ -31,6 +31,7 @@ export interface MatchData {
 
 export interface SessionData {
   tournament_name?: string;
+  time_control?: string;
   total_rounds: number;
   completed_rounds: number;
   player: {
@@ -107,6 +108,7 @@ export function parseSessionData(session: ChessSession): SessionData {
     const d = JSON.parse(session.data || '{}');
     return {
       tournament_name: d.tournament_name,
+      time_control: d.time_control,
       total_rounds: d.total_rounds || 0,
       completed_rounds: d.completed_rounds || 0,
       player: d.player || EMPTY_SESSION_DATA.player,
@@ -388,7 +390,9 @@ function parsePlayerHtml(html: string): SessionData | null {
     const perfRatingMatch = html.match(/>Performance rating<\/td>\s*<td[^>]*>(\d+)<\/td>/i);
     const performanceRating = parseInt(perfRatingMatch?.[1] || '0');
     const completedRounds = matches.filter(m => isMatchCompleted(m.result)).length;
-    return { tournament_name: tournamentName, total_rounds: totalRounds, completed_rounds: completedRounds, player: { name: playerName, current_rank: currentRank, starting_rank: startingRank, rating: playerRating, kFactor }, ratingChange, performanceRating, matches };
+    const timeControlMatch = html.match(/>Time control[^<]*<\/td>\s*<td[^>]*>([^<]+)<\/td>/i);
+    const time_control = timeControlMatch ? decodeHtmlEntities(timeControlMatch[1].trim()) : undefined;
+    return { tournament_name: tournamentName, time_control, total_rounds: totalRounds, completed_rounds: completedRounds, player: { name: playerName, current_rank: currentRank, starting_rank: startingRank, rating: playerRating, kFactor }, ratingChange, performanceRating, matches };
   } catch (err) {
     console.error('Error parsing player HTML:', err);
     return null;

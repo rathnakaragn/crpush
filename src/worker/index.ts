@@ -299,6 +299,10 @@ app.get("/session/:id", async (c) => {
           <div class="text-xs text-gray-500 mb-1">Rating ±</div>
           <div class="text-xl font-bold ${ratingColor}">${ratingDisplay}</div>
         </div>
+        ${data.time_control ? `<div class="bg-gray-50 rounded-lg p-3 col-span-2 sm:col-span-1">
+          <div class="text-xs text-gray-500 mb-1">Time Control</div>
+          <div class="text-sm font-semibold text-gray-900">${escapeHtml(data.time_control)}</div>
+        </div>` : ""}
       </div>
     </div>
     ${(data.matches || []).length > 0

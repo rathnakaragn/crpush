@@ -6,7 +6,6 @@ import {
   calculateTotalRatingChange,
   parseSessionData, type ChessSession,
 } from "./chess";
-// @ts-ignore – used in Tasks 11+ (settings test / poll)
 import { sendPushover } from "./pushover";
 
 const app = new Hono<{ Bindings: Env }>();
@@ -547,6 +546,140 @@ app.get("/logs", async (c) => {
 app.post("/logs/clear", async (c) => {
   await c.env.DB.prepare("DELETE FROM worker_logs").run();
   return c.redirect("/logs");
+});
+
+// ── Settings ──────────────────────────────────────────────────────────────────
+
+const DEFAULT_SETTINGS: Record<string, string> = {
+  timezone: "Asia/Kolkata",
+  night_start_hour: "23",
+  night_end_hour: "6",
+};
+
+app.get("/settings", async (c) => {
+  const { results } = await c.env.DB.prepare("SELECT key, value FROM settings").all<{ key: string; value: string }>();
+  const map = Object.fromEntries(results.map(r => [r.key, r.value]));
+  const s = { ...DEFAULT_SETTINGS, ...map };
+
+  const saved = c.req.query("saved");
+  const testOk = c.req.query("testok");
+  const testErr = c.req.query("testerror");
+
+  const content = `
+    ${saved ? `<div class="mb-4 p-3 bg-green-50 border border-green-200 rounded text-sm text-green-700">Settings saved.</div>` : ""}
+    ${testOk ? `<div class="mb-4 p-3 bg-green-50 border border-green-200 rounded text-sm text-green-700">Test notification sent successfully!</div>` : ""}
+    ${testErr ? `<div class="mb-4 p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700">Test notification failed. Check your app token and user key.</div>` : ""}
+
+    <h1 class="text-2xl font-bold text-gray-900 mb-6">Settings</h1>
+
+    <form method="POST" action="/settings" class="space-y-6">
+      <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+        <h2 class="text-base font-semibold text-gray-900 mb-1">Pushover Notifications</h2>
+        <p class="text-sm text-gray-500 mb-4">Get your tokens from <a href="https://pushover.net" target="_blank" class="text-blue-600 hover:underline">pushover.net</a>.</p>
+        <div class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">App Token</label>
+            <input name="pushover_app_token" type="text" value="${map.pushover_app_token || ""}"
+              placeholder="azGDORePK8gMaC0QOYAMyEEuzJnyUi"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <p class="text-xs text-gray-400 mt-1">From pushover.net/apps — create an application for OpenCRBot</p>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">User Key</label>
+            <input name="pushover_user_key" type="text" value="${map.pushover_user_key || ""}"
+              placeholder="uQiRzpo4DXghDmr9QzzfQu"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <p class="text-xs text-gray-400 mt-1">From your Pushover account dashboard</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+        <h2 class="text-base font-semibold text-gray-900 mb-1">Quiet Hours</h2>
+        <p class="text-sm text-gray-500 mb-4">Polling is paused during these hours so you don't get woken up.</p>
+        <div class="grid grid-cols-3 gap-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Timezone</label>
+            <input name="timezone" type="text" value="${s.timezone}"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Start Hour (24h)</label>
+            <input name="night_start_hour" type="number" min="0" max="23" value="${s.night_start_hour}"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">End Hour (24h)</label>
+            <input name="night_end_hour" type="number" min="0" max="23" value="${s.night_end_hour}"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-4">
+        <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg px-6 py-2 text-sm transition-colors">
+          Save Settings
+        </button>
+      </div>
+    </form>
+
+    <form method="POST" action="/settings/test" class="mt-3">
+      <button type="submit" class="text-sm text-gray-600 hover:text-gray-900 underline">Send Test Notification</button>
+    </form>
+
+    <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6 mt-6">
+      <h2 class="text-base font-semibold text-gray-900 mb-4">Change Credentials</h2>
+      <form method="POST" action="/settings/password" class="grid grid-cols-2 gap-4">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">New Username</label>
+          <input name="username" type="text" required
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">New Password</label>
+          <input name="password" type="password" required
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+        </div>
+        <div class="col-span-2">
+          <button type="submit" class="bg-gray-800 hover:bg-gray-900 text-white font-medium rounded-lg px-6 py-2 text-sm transition-colors">
+            Update Credentials
+          </button>
+        </div>
+      </form>
+    </div>
+  `;
+  return c.html(layout("Settings", content, "settings"));
+});
+
+app.post("/settings", async (c) => {
+  const body = await c.req.parseBody();
+  const allowed = ["pushover_app_token", "pushover_user_key", "timezone", "night_start_hour", "night_end_hour"];
+  const stmts = allowed
+    .filter(k => body[k] !== undefined)
+    .map(k => c.env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").bind(k, String(body[k])));
+  if (stmts.length > 0) await c.env.DB.batch(stmts);
+  return c.redirect("/settings?saved=1");
+});
+
+app.post("/settings/test", async (c) => {
+  const appToken = await getSetting(c.env.DB, "pushover_app_token");
+  const userKey = await getSetting(c.env.DB, "pushover_user_key");
+  if (!appToken || !userKey) return c.redirect("/settings?testerror=1");
+  const ok = await sendPushover(appToken, userKey, "OpenCRBot Test", "Pushover is configured correctly!", "https://pushover.net");
+  return c.redirect(ok ? "/settings?testok=1" : "/settings?testerror=1");
+});
+
+app.post("/settings/password", async (c) => {
+  const body = await c.req.parseBody();
+  const username = String(body.username || "").trim();
+  const password = String(body.password || "").trim();
+  if (!username || !password) return c.redirect("/settings");
+  await c.env.DB.batch([
+    c.env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").bind("dashboard_user", username),
+    c.env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").bind("dashboard_password", password),
+  ]);
+  c.header("Set-Cookie", "session=; HttpOnly; Secure; SameSite=Lax; Max-Age=0; Path=/");
+  return c.redirect("/login");
 });
 
 // ── Export (scheduled handler completed in Task 13) ───────────────────────────

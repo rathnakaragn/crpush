@@ -15,7 +15,7 @@ Built with **Hono** + **Cloudflare D1** + **Drizzle ORM** + **server-rendered HT
 
 ## Prerequisites
 
-- Node.js 18+
+- Node.js 22+
 - [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/) (`npm install -g wrangler`)
 - A Cloudflare account (free)
 - A [Pushover](https://pushover.net) account and application

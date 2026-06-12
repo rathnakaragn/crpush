@@ -36,7 +36,7 @@ export async function verifySessionCookie(key: CryptoKey, cookie: string): Promi
     const valid = await crypto.subtle.verify("HMAC", key, sigBytes, new TextEncoder().encode(payload));
     if (!valid) return null;
     const decoded = atob(payload);
-    const sep = decoded.indexOf(":");
+    const sep = decoded.lastIndexOf(":");
     const username = decoded.slice(0, sep);
     const expStr = decoded.slice(sep + 1);
     if (parseInt(expStr) < Math.floor(Date.now() / 1000)) return null;

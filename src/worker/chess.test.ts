@@ -83,3 +83,37 @@ describe('parseSessionData', () => {
     expect(data.ratingChange).toBe(12);
   });
 });
+
+describe("quiet hours logic", () => {
+  function isQuietHour(hour: number, nightStart: number, nightEnd: number): boolean {
+    return nightStart > nightEnd
+      ? hour >= nightStart || hour < nightEnd
+      : hour >= nightStart && hour < nightEnd;
+  }
+
+  it("is quiet at 23:00 when quiet hours are 23–6", () => {
+    expect(isQuietHour(23, 23, 6)).toBe(true);
+  });
+
+  it("is quiet at 2:00 (midnight crossing)", () => {
+    expect(isQuietHour(2, 23, 6)).toBe(true);
+  });
+
+  it("is not quiet at 10:00", () => {
+    expect(isQuietHour(10, 23, 6)).toBe(false);
+  });
+
+  it("handles midnight as hour 0 (not 24)", () => {
+    expect(isQuietHour(0, 23, 6)).toBe(true);
+  });
+
+  it("same-hemisphere: quiet 9–17 does not wrap", () => {
+    expect(isQuietHour(12, 9, 17)).toBe(true);
+    expect(isQuietHour(8, 9, 17)).toBe(false);
+    expect(isQuietHour(18, 9, 17)).toBe(false);
+  });
+
+  it("boundary: nightEnd hour is not quiet", () => {
+    expect(isQuietHour(6, 23, 6)).toBe(false);
+  });
+});

@@ -499,21 +499,21 @@ async function checkPlayerUpdate(db: D1Database, session: ChessSession): Promise
       console.warn(`[chess] Could not fetch player data for session ${session.id}`);
       return notifications;
     }
-    // Check for results on existing matches
-    for (let i = 0; i < oldData.matches.length; i++) {
-      const oldMatch = oldData.matches[i];
-      const newMatch = newData.matches[i];
-      if (newMatch && !isMatchCompleted(oldMatch.result) && isMatchCompleted(newMatch.result)) {
+    // Check for results on existing matches and new matches
+    const oldByRound = new Map(oldData.matches.map(m => [m.round_number, m]));
+
+    for (const newMatch of newData.matches) {
+      const oldMatch = oldByRound.get(newMatch.round_number);
+      if (!oldMatch) {
+        // New match (round not seen before)
+        notifications.push({
+          type: isMatchCompleted(newMatch.result) ? 'result' : 'pairing',
+          session, oldData, newData, match: newMatch,
+        });
+      } else if (!isMatchCompleted(oldMatch.result) && isMatchCompleted(newMatch.result)) {
+        // Existing match that now has a result
         notifications.push({ type: 'result', session, oldData, newData, match: newMatch });
       }
-    }
-    // Check for new matches
-    for (let i = oldData.matches.length; i < newData.matches.length; i++) {
-      const newMatch = newData.matches[i];
-      notifications.push({
-        type: isMatchCompleted(newMatch.result) ? 'result' : 'pairing',
-        session, oldData, newData, match: newMatch,
-      });
     }
     // Auto-stop completed tournaments
     if (newData.total_rounds > 0 && newData.completed_rounds >= newData.total_rounds && oldData.completed_rounds < newData.total_rounds) {

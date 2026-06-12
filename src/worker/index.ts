@@ -1,6 +1,5 @@
 import { Hono } from "hono";
 import {
-  // @ts-ignore – used in Task 13 (cron handler)
   checkForUpdates,
   fetchPlayerData, calculatePoints,
   calculateTotalRatingChange,
@@ -680,6 +679,26 @@ app.post("/settings/password", async (c) => {
   ]);
   c.header("Set-Cookie", "session=; HttpOnly; Secure; SameSite=Lax; Max-Age=0; Path=/");
   return c.redirect("/login");
+});
+
+// ── Poll ──────────────────────────────────────────────────────────────────────
+
+app.post("/poll", async (c) => {
+  const appToken = await getSetting(c.env.DB, "pushover_app_token");
+  const userKey = await getSetting(c.env.DB, "pushover_user_key");
+
+  const sendFn = async (title: string, message: string, url: string) => {
+    if (!appToken || !userKey) return false;
+    return sendPushover(appToken, userKey, title, message, url);
+  };
+
+  const logFn = (msg: string, level: "info" | "warn" | "error" = "info", source = "poll") =>
+    writeLog(c.env.DB, msg, level, source);
+
+  await writeLog(c.env.DB, "Manual check triggered", "info", "poll");
+  const result = await checkForUpdates(c.env.DB, sendFn, logFn);
+  await writeLog(c.env.DB, `Manual check done — ${result.sessions} session(s), ${result.notifications} notification(s)`, "info", "poll");
+  return c.redirect("/");
 });
 
 // ── Export (scheduled handler completed in Task 13) ───────────────────────────

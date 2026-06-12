@@ -1,12 +1,12 @@
 {
-  "name": "opencrbot",
+  "name": "opencrpushover",
   "main": "src/worker/index.ts",
   "compatibility_date": "2025-01-01",
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "opencrbot",
-      "database_id": "YOUR_D1_DATABASE_ID"
+      "database_id": "07166cde-efc8-4de2-af09-58029cd9b3b9"
     }
   ],
   "triggers": {

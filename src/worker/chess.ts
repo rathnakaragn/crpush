@@ -619,11 +619,8 @@ export async function checkForUpdates(
             await writeLog(`${notification.type} notification: ${title}`, 'info', 'cron');
 
             if (notification.session.notify === 1) {
-              const { title, message } = formatNotification(notification);
-              if (message) {
-                const sent = await sendNotification(title, message, notification.session.url);
-                if (sent) await markNotificationSent(db, notifId);
-              }
+              const sent = await sendNotification(title, message, notification.session.url);
+              if (sent) await markNotificationSent(db, notifId);
             }
           }
 

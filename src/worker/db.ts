@@ -1,5 +1,4 @@
 import { eq, sql } from "drizzle-orm";
-import type { ChessSession } from "./chess";
 import type { AppDB } from "./drizzle";
 import { settings, workerLogs } from "./schema";
 
@@ -22,12 +21,6 @@ export async function writeLog(db: AppDB, message: string, level: "info" | "warn
   }
 }
 
-export async function getCredentials(db: AppDB): Promise<{ user: string; pass: string }> {
-  const userRow = await db.select({ value: settings.value }).from(settings).where(eq(settings.key, "dashboard_user"));
-  const passRow = await db.select({ value: settings.value }).from(settings).where(eq(settings.key, "dashboard_password"));
-  return { user: userRow[0]?.value || "admin", pass: passRow[0]?.value || "admin" };
-}
-
 export function parseChessUrl(url: string): { server: string; tournament_id: string; player_snr: string; federation: string } | null {
   try {
     const u = new URL(url.startsWith("http") ? url : `https://${url}`);
@@ -43,8 +36,4 @@ export function parseChessUrl(url: string): { server: string; tournament_id: str
   } catch {
     return null;
   }
-}
-
-export function toChessSession(row: Record<string, unknown>): ChessSession {
-  return row as unknown as ChessSession;
 }

@@ -11,16 +11,8 @@ import {
 } from "./chess";
 import { sendPushover } from "./pushover";
 import {
-  getCookieSecret,
-  createSessionCookie,
-  getAuthUser,
-  hashPassword,
-  verifyPassword,
-} from "./auth";
-import {
   getSetting,
   writeLog,
-  getCredentials,
   parseChessUrl,
 } from "./db";
 import {
@@ -33,77 +25,6 @@ import {
 
 const app = new Hono<{ Bindings: Env }>();
 
-// ── Auth middleware ───────────────────────────────────────────────────────────
-
-app.use("/*", async (c, next) => {
-  if (c.req.path === "/login") return next();
-  const user = await getAuthUser(c.req.raw, c.env.DB);
-  if (!user) return c.redirect("/login");
-  return next();
-});
-
-// ── Login / Logout ────────────────────────────────────────────────────────────
-
-app.get("/login", async (c) => {
-  const error = c.req.query("error");
-  return c.html(`<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Login — OpenCRBot</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="bg-gray-50 min-h-screen flex items-center justify-center">
-  <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-8 w-full max-w-sm">
-    <h1 class="text-2xl font-bold text-gray-900 mb-1">♟ OpenCRBot</h1>
-    <p class="text-gray-500 text-sm mb-6">Sign in to your dashboard</p>
-    ${error ? `<div class="mb-4 p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700">Invalid username or password.</div>` : ""}
-    <form method="POST" action="/login" class="space-y-4">
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Username</label>
-        <input name="username" type="text" required autofocus
-          class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-      </div>
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Password</label>
-        <input name="password" type="password" required
-          class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-      </div>
-      <button type="submit"
-        class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg px-4 py-2 text-sm transition-colors">
-        Sign In
-      </button>
-    </form>
-  </div>
-</body>
-</html>`);
-});
-
-app.post("/login", async (c) => {
-  const db = getDb(c.env.DB);
-  const body = await c.req.parseBody();
-  const username = String(body.username || "");
-  const password = String(body.password || "");
-  const creds = await getCredentials(db);
-  const usernameMatch = username === creds.user;
-  let passwordMatch: boolean;
-  if (creds.pass.includes(":") && creds.pass.length > 40) {
-    passwordMatch = await verifyPassword(password, creds.pass);
-  } else {
-    passwordMatch = password === creds.pass;
-  }
-  if (!usernameMatch || !passwordMatch) return c.redirect("/login?error=1");
-  const key = await getCookieSecret(c.env.DB);
-  const cookie = await createSessionCookie(key, username);
-  c.header("Set-Cookie", `session=${encodeURIComponent(cookie)}; HttpOnly; Secure; SameSite=Lax; Max-Age=604800; Path=/`);
-  return c.redirect("/");
-});
-
-app.post("/logout", (c) => {
-  c.header("Set-Cookie", "session=; HttpOnly; Secure; SameSite=Lax; Max-Age=0; Path=/");
-  return c.redirect("/login");
-});
 
 // ── Sessions ──────────────────────────────────────────────────────────────────
 
@@ -117,9 +38,6 @@ app.get("/", async (c) => {
 
   const notifRows = await db.select({ count: sql<number>`count(*)` }).from(notifications).where(eq(notifications.sent, 1));
   const notifCount = notifRows[0]?.count ?? 0;
-
-  const creds = await getCredentials(db);
-  const isDefault = creds.user === "admin" && creds.pass === "admin";
 
   const rows = results.map(s => {
     const fmt = formatSession(s as unknown as Record<string, unknown>);
@@ -144,9 +62,6 @@ app.get("/", async (c) => {
   }).join("");
 
   const content = `
-    ${isDefault ? `<div class="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-800">
-      Default credentials in use. <a href="/settings" class="font-medium underline">Change your password in Settings.</a>
-    </div>` : ""}
     <div class="flex items-center justify-between mb-6">
       <div>
         <h1 class="text-2xl font-bold text-gray-900">Sessions</h1>
@@ -507,27 +422,6 @@ app.get("/settings", async (c) => {
     <form method="POST" action="/settings/test" class="mt-3">
       <button type="submit" class="text-sm text-gray-600 hover:text-gray-900 underline">Send Test Notification</button>
     </form>
-
-    <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6 mt-6">
-      <h2 class="text-base font-semibold text-gray-900 mb-4">Change Credentials</h2>
-      <form method="POST" action="/settings/password" class="grid grid-cols-2 gap-4">
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">New Username</label>
-          <input name="username" type="text" required
-            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-        </div>
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">New Password</label>
-          <input name="password" type="password" required
-            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-        </div>
-        <div class="col-span-2">
-          <button type="submit" class="bg-gray-800 hover:bg-gray-900 text-white font-medium rounded-lg px-6 py-2 text-sm transition-colors">
-            Update Credentials
-          </button>
-        </div>
-      </form>
-    </div>
   `;
   return c.html(layout("Settings", content, "settings"));
 });
@@ -555,20 +449,6 @@ app.post("/settings/test", async (c) => {
   return c.redirect(ok ? "/settings?testok=1" : "/settings?testerror=1");
 });
 
-app.post("/settings/password", async (c) => {
-  const db = getDb(c.env.DB);
-  const body = await c.req.parseBody();
-  const username = String(body.username || "").trim();
-  const password = String(body.password || "").trim();
-  if (!username || !password) return c.redirect("/settings");
-  const hashedPassword = await hashPassword(password);
-  await db.insert(settings).values({ key: "dashboard_user", value: username })
-    .onConflictDoUpdate({ target: settings.key, set: { value: username } });
-  await db.insert(settings).values({ key: "dashboard_password", value: hashedPassword })
-    .onConflictDoUpdate({ target: settings.key, set: { value: hashedPassword } });
-  c.header("Set-Cookie", "session=; HttpOnly; Secure; SameSite=Lax; Max-Age=0; Path=/");
-  return c.redirect("/login");
-});
 
 // ── Poll ──────────────────────────────────────────────────────────────────────
 

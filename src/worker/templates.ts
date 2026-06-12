@@ -48,11 +48,6 @@ export function layout(title: string, content: string, activePage = ""): string 
     ${link("/notifications", "Notifications", "notifications")}
     ${link("/logs", "Logs", "logs")}
     ${link("/settings", "Settings", "settings")}
-    <div class="ml-auto">
-      <form method="POST" action="/logout">
-        <button type="submit" class="text-sm text-gray-500 hover:text-gray-900">Logout</button>
-      </form>
-    </div>
   </nav>
   <main class="max-w-5xl mx-auto px-6 py-8">${content}</main>
 </body>

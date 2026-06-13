@@ -296,14 +296,24 @@ app.get("/session/:id", async (c) => {
 
 app.get("/notifications", async (c) => {
   const db = getDb(c.env.DB);
-  const results = await db.select({
-    id: notifications.id, type: notifications.type, title: notifications.title,
-    message: notifications.message, sent: notifications.sent, createdAt: notifications.createdAt,
-    sessionData: chessSessions.data,
-  }).from(notifications)
-    .leftJoin(chessSessions, eq(notifications.sessionId, chessSessions.id))
-    .orderBy(desc(notifications.createdAt))
-    .limit(50);
+  const [results, tzRow] = await Promise.all([
+    db.select({
+      id: notifications.id, type: notifications.type, title: notifications.title,
+      message: notifications.message, sent: notifications.sent, createdAt: notifications.createdAt,
+      sessionData: chessSessions.data,
+    }).from(notifications)
+      .leftJoin(chessSessions, eq(notifications.sessionId, chessSessions.id))
+      .orderBy(desc(notifications.createdAt))
+      .limit(50),
+    db.select().from(settings).where(eq(settings.key, "timezone")),
+  ]);
+  const timezone = tzRow[0]?.value || "Asia/Kolkata";
+
+  const formatNotifTime = (utcStr: string | null) => {
+    if (!utcStr) return "";
+    const d = new Date(utcStr.includes("T") ? utcStr : utcStr.replace(" ", "T") + "Z");
+    return d.toLocaleString("sv-SE", { timeZone: timezone }).slice(0, 16);
+  };
 
   const typeBadge = (t: string) => {
     const styles: Record<string, string> = {
@@ -320,7 +330,7 @@ app.get("/notifications", async (c) => {
       ? `<span class="text-green-600 text-xs">✓ sent</span>`
       : `<span class="text-gray-400 text-xs">unsent</span>`;
     return `<tr class="border-t border-gray-100 hover:bg-gray-50">
-      <td class="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">${String(n.createdAt).slice(0, 16).replace("T", " ")}</td>
+      <td class="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">${formatNotifTime(n.createdAt)}</td>
       <td class="px-4 py-3">${typeBadge(String(n.type))}</td>
       <td class="px-4 py-3 text-sm font-medium text-gray-900">${escapeHtml(n.title)}</td>
       <td class="px-4 py-3 text-xs text-gray-500">

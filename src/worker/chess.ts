@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { AppDB } from "./drizzle";
 import { chessSessions, notifications } from "./schema";
 
@@ -552,6 +552,26 @@ export async function checkForUpdates(
   sendNotification: (title: string, message: string, url: string) => Promise<boolean>,
   writeLog: (msg: string, level?: 'info' | 'warn' | 'error', source?: string) => Promise<void>,
 ): Promise<PollResult> {
+  // Retry notifications that failed to send (within the last 24 hours)
+  const unsent = await db
+    .select({ id: notifications.id, title: notifications.title, message: notifications.message, url: chessSessions.url })
+    .from(notifications)
+    .innerJoin(chessSessions, eq(notifications.sessionId, chessSessions.id))
+    .where(and(
+      eq(notifications.sent, 0),
+      eq(chessSessions.notify, 1),
+      sql`${notifications.createdAt} > datetime('now', '-24 hours')`,
+    ));
+
+  let retried = 0;
+  for (const n of unsent) {
+    const ok = await sendNotification(n.title, n.message, n.url);
+    if (ok) { await markNotificationSent(db, n.id); retried++; }
+  }
+  if (unsent.length > 0) {
+    await writeLog(`Retry: ${retried}/${unsent.length} unsent notification(s) delivered`, retried < unsent.length ? 'warn' : 'info', 'cron');
+  }
+
   const rows = await db.select().from(chessSessions).where(eq(chessSessions.status, "running"));
   // Map camelCase Drizzle results back to snake_case ChessSession interface
   const running: ChessSession[] = rows.map(r => ({

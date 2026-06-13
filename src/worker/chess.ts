@@ -544,6 +544,7 @@ async function checkPlayerUpdate(db: AppDB, session: ChessSession): Promise<Noti
 export interface PollResult {
   sessions: number;
   notifications: number;
+  errors: number;
   skipped?: boolean;
 }
 
@@ -589,11 +590,12 @@ export async function checkForUpdates(
   }));
 
   if (running.length === 0) {
-    return { sessions: 0, notifications: 0 };
+    return { sessions: 0, notifications: 0, errors: 0 };
   }
 
   const groups = groupByTournament(running);
   let notifCount = 0;
+  let errorCount = 0;
   let isFirst = true;
 
   for (const [tournamentKey, sessions] of groups) {
@@ -655,8 +657,9 @@ export async function checkForUpdates(
       }
     } catch (err) {
       await writeLog(`Error processing tournament ${tournamentKey}: ${err}`, 'error', 'cron');
+      errorCount++;
     }
   }
 
-  return { sessions: running.length, notifications: notifCount };
+  return { sessions: running.length, notifications: notifCount, errors: errorCount };
 }

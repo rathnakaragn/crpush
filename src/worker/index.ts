@@ -535,9 +535,9 @@ app.post("/poll", async (c) => {
 
   await writeLog(db, "Manual check triggered", "info", "poll");
   c.executionCtx.waitUntil(
-    checkForUpdates(db, sendFn, logFn).then(result =>
-      writeLog(db, `Manual check done — ${result.sessions} session(s), ${result.notifications} notification(s)`, "info", "poll")
-    )
+    checkForUpdates(db, sendFn, logFn)
+      .then(result => writeLog(db, `Manual check done — ${result.sessions} session(s), ${result.notifications} notification(s)${result.errors > 0 ? `, ${result.errors} error(s)` : ""}`, result.errors > 0 ? "warn" : "info", "poll"))
+      .catch(err => writeLog(db, `Manual check crashed: ${err}`, "error", "poll"))
   );
   return c.redirect("/");
 });
@@ -576,10 +576,23 @@ export default {
       return sendPushover(appToken, userKey, title, message, url);
     };
 
+    const alertFn = (title: string, message: string) => {
+      if (!appToken || !userKey) return Promise.resolve(false);
+      return sendPushover(appToken, userKey, title, message);
+    };
+
     const logFn = (msg: string, level: "info" | "warn" | "error" = "info", source = "cron") =>
       writeLog(db, msg, level, source);
 
-    const result = await checkForUpdates(db, sendFn, logFn);
-    await writeLog(db, `Cron done — ${result.sessions} session(s), ${result.notifications} notification(s)`, "info", "cron");
+    try {
+      const result = await checkForUpdates(db, sendFn, logFn);
+      await writeLog(db, `Cron done — ${result.sessions} session(s), ${result.notifications} notification(s)`, "info", "cron");
+      if (result.errors > 0) {
+        await alertFn("OpenCRBot: cron errors", `${result.errors} tournament(s) failed to check. See logs for details.`);
+      }
+    } catch (err) {
+      await writeLog(db, `Cron crashed: ${err}`, "error", "cron");
+      await alertFn("OpenCRBot: cron crashed", String(err).slice(0, 200));
+    }
   },
 };

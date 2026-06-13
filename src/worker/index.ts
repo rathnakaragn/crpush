@@ -360,10 +360,20 @@ app.get("/notifications", async (c) => {
 
 app.get("/logs", async (c) => {
   const db = getDb(c.env.DB);
-  const logs = await db.select().from(workerLogs).orderBy(desc(workerLogs.createdAt)).limit(100);
+  const [logs, tzRow] = await Promise.all([
+    db.select().from(workerLogs).orderBy(desc(workerLogs.createdAt)).limit(100),
+    db.select().from(settings).where(eq(settings.key, "timezone")),
+  ]);
+  const timezone = tzRow[0]?.value || "Asia/Kolkata";
+
+  const formatLogTime = (utcStr: string | null) => {
+    if (!utcStr) return "";
+    const d = new Date(utcStr.includes("T") ? utcStr : utcStr.replace(" ", "T") + "Z");
+    return d.toLocaleString("sv-SE", { timeZone: timezone }).slice(0, 19);
+  };
 
   const rows = logs.map(l => `<tr class="border-t border-gray-100 hover:bg-gray-50">
-    <td class="px-4 py-2 text-xs text-gray-400 whitespace-nowrap">${String(l.createdAt).slice(0, 19).replace("T", " ")}</td>
+    <td class="px-4 py-2 text-xs text-gray-400 whitespace-nowrap">${formatLogTime(l.createdAt)}</td>
     <td class="px-4 py-2">${levelBadge(String(l.level))}</td>
     <td class="px-4 py-2 text-xs text-gray-500">${escapeHtml(l.source)}</td>
     <td class="px-4 py-2 text-sm text-gray-700">${escapeHtml(l.message)}</td>

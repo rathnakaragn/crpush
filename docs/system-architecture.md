@@ -1,6 +1,6 @@
 # System Architecture — crpush
 
-**Version:** 1.2.6  
+**Version:** 1.2.7  
 **Date:** 2026-06-12
 
 ---

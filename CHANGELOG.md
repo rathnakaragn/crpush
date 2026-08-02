@@ -6,10 +6,15 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.2.7] - 2026-08-02
+
 ### Fixed
 
 - Synced dashboard-only Worker settings into `wrangler.json` (smart placement,
   observability logs) so deploys no longer revert them.
+- Documented toolchain notes in CLAUDE.md: Node v22+ requirement (Homebrew
+  node v26 is canonical; stale `/usr/local/bin/node` symlink and `node@20`
+  removed), wrangler OAuth re-auth, and dashboard config-drift rule.
 
 ## [1.2.6] - 2026-08-02
 
@@ -96,7 +101,8 @@ Initial release.
 - HTML escaped in all template interpolations (XSS prevention).
 - Dashboard password hashed with PBKDF2.
 
-[Unreleased]: https://github.com/rathnakaragn/crpush/compare/v1.2.6...HEAD
+[Unreleased]: https://github.com/rathnakaragn/crpush/compare/v1.2.7...HEAD
+[1.2.7]: https://github.com/rathnakaragn/crpush/compare/v1.2.6...v1.2.7
 [1.2.6]: https://github.com/rathnakaragn/crpush/compare/v1.2.5...v1.2.6
 [1.2.5]: https://github.com/rathnakaragn/crpush/compare/v1.2.4...v1.2.5
 [1.2.4]: https://github.com/rathnakaragn/crpush/compare/v1.2.3...v1.2.4

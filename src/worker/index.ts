@@ -103,7 +103,9 @@ app.get("/", async (c) => {
       ? `<form method="POST" action="/sessions/${fmt.id}/stop" class="inline" onsubmit="return confirm('Stop monitoring this player?')">
            <button type="submit" class="text-xs text-red-600 hover:text-red-800 font-medium">Stop</button>
          </form>`
-      : `<span class="text-xs text-gray-400">—</span>`;
+      : `<form method="POST" action="/sessions/${fmt.id}/delete" class="inline" onsubmit="return confirm('Delete this session and its notifications? This cannot be undone.')">
+           <button type="submit" class="text-xs text-gray-400 hover:text-red-600 font-medium">Delete</button>
+         </form>`;
     return `<tr class="border-t border-gray-100 hover:bg-gray-50">
       <td class="px-4 py-3 text-sm"><a href="/session/${escapeHtml(fmt.id)}" class="text-blue-600 hover:underline font-medium">${escapeHtml(fmt.player)}</a></td>
       <td class="px-4 py-3 text-sm text-gray-600 max-w-xs truncate" title="${escapeHtml(fmt.tournament)}">${escapeHtml(fmt.tournament) || "—"}</td>
@@ -195,6 +197,17 @@ app.post("/sessions/:id/toggle-notify", async (c) => {
   await db.update(chessSessions)
     .set({ notify: session[0].notify ? 0 : 1 })
     .where(eq(chessSessions.id, Number(c.req.param("id"))));
+  return c.redirect("/");
+});
+
+app.post("/sessions/:id/delete", async (c) => {
+  const db = getDb(c.env.DB);
+  const id = Number(c.req.param("id"));
+  const session = await db.select({ status: chessSessions.status }).from(chessSessions)
+    .where(eq(chessSessions.id, id)).limit(1);
+  if (!session[0] || session[0].status === "running") return c.redirect("/");
+  await db.delete(notifications).where(eq(notifications.sessionId, id));
+  await db.delete(chessSessions).where(eq(chessSessions.id, id));
   return c.redirect("/");
 });
 

@@ -212,6 +212,47 @@ describe("POST /sessions/:id/toggle-notify", () => {
   });
 });
 
+describe("POST /sessions/:id/delete", () => {
+  it("deletes a stopped session and its notifications", async () => {
+    await env.DB.prepare(
+      "INSERT INTO chess_sessions (url, tournament_id, player_snr, server, federation, status) VALUES (?, 'tnr123456', '42', '', 'IND', 'stopped')"
+    ).bind(VALID_SESSION_URL).run();
+    const { results } = await env.DB.prepare("SELECT id FROM chess_sessions").all<{ id: number }>();
+    const id = results[0].id;
+    await env.DB.prepare(
+      "INSERT INTO notifications (session_id, type, title, message, round_number) VALUES (?, 'result', 't', 'm', 1)"
+    ).bind(id).run();
+
+    const res = await authed(`/sessions/${id}/delete`, { method: "POST" });
+    expect(res.status).toBe(302);
+
+    const session = await env.DB.prepare("SELECT id FROM chess_sessions WHERE id = ?").bind(id).first();
+    expect(session).toBeNull();
+    const notif = await env.DB.prepare("SELECT id FROM notifications WHERE session_id = ?").bind(id).first();
+    expect(notif).toBeNull();
+  });
+
+  it("refuses to delete a running session", async () => {
+    await env.DB.prepare(
+      "INSERT INTO chess_sessions (url, tournament_id, player_snr, server, federation, status) VALUES (?, 'tnr123456', '42', '', 'IND', 'running')"
+    ).bind(VALID_SESSION_URL).run();
+    const { results } = await env.DB.prepare("SELECT id FROM chess_sessions").all<{ id: number }>();
+    const id = results[0].id;
+
+    const res = await authed(`/sessions/${id}/delete`, { method: "POST" });
+    expect(res.status).toBe(302);
+
+    const session = await env.DB.prepare("SELECT id FROM chess_sessions WHERE id = ?").bind(id).first();
+    expect(session).not.toBeNull();
+  });
+
+  it("redirects without error for a nonexistent session id", async () => {
+    const res = await authed(`/sessions/9999/delete`, { method: "POST" });
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("/");
+  });
+});
+
 // ── Notifications ─────────────────────────────────────────────────────────────
 
 describe("GET /notifications", () => {

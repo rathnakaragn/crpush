@@ -6,6 +6,12 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+
+- Delete button for non-running sessions (with confirm): removes the session
+  and its notifications. The route refuses to delete running sessions
+  server-side.
+
 ## [1.2.8] - 2026-08-02
 
 ### Fixed

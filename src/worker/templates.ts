@@ -32,7 +32,7 @@ export function levelBadge(level: string): string {
   return `<span class="px-2 py-0.5 rounded text-xs font-medium ${styles[level] ?? "bg-gray-100 text-gray-700"}">${level}</span>`;
 }
 
-export function layout(title: string, content: string, activePage = ""): string {
+export function layout(title: string, content: string, activePage = "", refreshUrl?: string): string {
   const link = (href: string, label: string, page: string) =>
     `<a href="${href}" class="text-sm ${activePage === page ? "text-blue-600 font-medium" : "text-gray-600 hover:text-gray-900"}">${label}</a>`;
   return `<!DOCTYPE html>
@@ -40,6 +40,7 @@ export function layout(title: string, content: string, activePage = ""): string 
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  ${refreshUrl ? `<meta http-equiv="refresh" content="60;url=${refreshUrl}">` : ""}
   <title>${escapeHtml(title)} — OpenCRBot</title>
   <style>${STYLES}</style>
 </head>

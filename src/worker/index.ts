@@ -128,7 +128,15 @@ app.get("/", async (c) => {
     </tr>`;
   }).join("");
 
+  const errorParam = c.req.query("error");
+  const errorMsg = errorParam === "invalid-url"
+    ? "That doesn't look like a chess-results.com player URL — it needs a tnr number and an snr= parameter."
+    : errorParam === "duplicate"
+    ? "Already monitoring this URL — see the running session below."
+    : "";
+
   const content = `
+    ${errorMsg ? `<div class="mb-4 p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700">${errorMsg}</div>` : ""}
     <div class="flex items-center justify-between mb-6">
       <div>
         <h1 class="text-2xl font-bold text-gray-900">Sessions</h1>
@@ -170,19 +178,20 @@ app.get("/", async (c) => {
           </table>
         </div>`}
   `;
-  return c.html(layout("Sessions", content, "sessions"));
+  // Auto-refresh while a tournament is live (url strips ?error= on reload)
+  return c.html(layout("Sessions", content, "sessions", running > 0 ? "/" : undefined));
 });
 
 app.post("/sessions", async (c) => {
   const db = getDb(c.env.DB);
   const body = await c.req.parseBody();
   const url = String(body.url || "").trim();
-  if (!url) return c.redirect("/");
+  if (!url) return c.redirect("/?error=invalid-url");
   const parsed = parseChessUrl(url);
-  if (!parsed) return c.redirect("/");
+  if (!parsed) return c.redirect("/?error=invalid-url");
   const existing = await db.select({ id: chessSessions.id }).from(chessSessions)
     .where(and(eq(chessSessions.url, url), eq(chessSessions.status, "running"))).limit(1);
-  if (existing.length > 0) return c.redirect("/");
+  if (existing.length > 0) return c.redirect("/?error=duplicate");
   const initialData = await fetchPlayerData(parsed.server, parsed.tournament_id, parsed.player_snr, parsed.federation, url).catch(() => null);
   await db.insert(chessSessions).values({
     url, tournamentId: parsed.tournament_id, playerSnr: parsed.player_snr,
@@ -344,7 +353,9 @@ app.get("/session/:id", async (c) => {
         </div>`
       : `<div class="text-center py-8 text-gray-400">No matches yet.</div>`}
   `;
-  return c.html(layout(data.player?.name || "Session", content, "sessions")); // title is escaped inside layout()
+  // title is escaped inside layout(); auto-refresh while this session is live
+  return c.html(layout(data.player?.name || "Session", content, "sessions",
+    s.status === "running" ? `/session/${s.id}` : undefined));
 });
 
 // ── Notifications ─────────────────────────────────────────────────────────────

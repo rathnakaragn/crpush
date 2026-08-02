@@ -6,6 +6,13 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+
+- Error banners on the dashboard when adding a monitor fails (invalid URL or
+  duplicate) — previously a silent redirect.
+- The dashboard and session detail pages auto-refresh every 60s while a
+  session is running (plain meta refresh, no JavaScript).
+
 ## [1.6.0] - 2026-08-02
 
 ### Changed

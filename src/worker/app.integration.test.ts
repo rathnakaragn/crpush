@@ -140,7 +140,7 @@ describe("POST /sessions", () => {
       body: "url=",
     });
     expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe("/");
+    expect(res.headers.get("Location")).toBe("/?error=invalid-url");
     const { results } = await env.DB.prepare("SELECT COUNT(*) as c FROM chess_sessions").all<{ c: number }>();
     expect(results[0].c).toBe(0);
   });
@@ -152,6 +152,7 @@ describe("POST /sessions", () => {
       body: "url=https%3A%2F%2Fexample.com%2Ftnr123.aspx%3Fsnr%3D1",
     });
     expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("/?error=invalid-url");
     const { results } = await env.DB.prepare("SELECT COUNT(*) as c FROM chess_sessions").all<{ c: number }>();
     expect(results[0].c).toBe(0);
   });
@@ -181,8 +182,27 @@ describe("POST /sessions", () => {
       body: `url=${encodeURIComponent(VALID_SESSION_URL)}`,
     });
     expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("/?error=duplicate");
     const { results } = await env.DB.prepare("SELECT COUNT(*) as c FROM chess_sessions").all<{ c: number }>();
     expect(results[0].c).toBe(1);
+  });
+
+  it("shows an error banner on the dashboard for ?error=", async () => {
+    const body = await (await authed("/?error=invalid-url")).text();
+    expect(body).toContain("look like a chess-results.com player URL");
+  });
+});
+
+describe("dashboard auto-refresh", () => {
+  it("adds a meta refresh only while a session is running", async () => {
+    const idle = await (await authed("/")).text();
+    expect(idle).not.toContain('http-equiv="refresh"');
+
+    await env.DB.prepare(
+      "INSERT INTO chess_sessions (url, tournament_id, player_snr, server, federation, status) VALUES (?, 'tnr123456', '42', '', 'IND', 'running')"
+    ).bind(VALID_SESSION_URL).run();
+    const live = await (await authed("/")).text();
+    expect(live).toContain('<meta http-equiv="refresh" content="60;url=/">');
   });
 });
 

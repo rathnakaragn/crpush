@@ -257,7 +257,7 @@ export async function fetchTournamentData(server: string, tournamentId: string):
   }
 }
 
-function parseTournamentHtml(standingsHtml: string, detailsHtml?: string): TournamentInfo | null {
+export function parseTournamentHtml(standingsHtml: string, detailsHtml?: string): TournamentInfo | null {
   try {
     const infoHtml = detailsHtml || standingsHtml;
     const nameMatch = infoHtml.match(/<h2>([^<]+)<\/h2>/i);
@@ -356,7 +356,7 @@ export async function fetchPlayerData(server: string, tournamentId: string, play
   }
 }
 
-function parsePlayerHtml(html: string): SessionData | null {
+export function parsePlayerHtml(html: string): SessionData | null {
   try {
     const nameMatch = html.match(/>Name<\/td>\s*<td[^>]*>([^<]+)<\/td>/i);
     const playerName = decodeHtmlEntities(nameMatch?.[1]?.trim() || 'Unknown');

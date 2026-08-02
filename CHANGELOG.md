@@ -6,6 +6,14 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Integration tests now build their schema from `schema.sql` directly (raw
+  import) instead of a hand-maintained copy — no more schema drift risk.
+- Scraper regression tests against real chess-results.com pages captured as
+  fixtures (`src/worker/__fixtures__/`): player card, matches incl. upcoming
+  pairing, tournament details, and full standings.
+
 ## [1.3.0] - 2026-08-02
 
 ### Changed

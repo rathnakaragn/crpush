@@ -53,6 +53,7 @@ describe('parseTournamentHtml (real fixture)', () => {
     expect(info.organizer).toBe('OUTPACE ACADEMY');
     expect(info.tournamentType).toBe('Swiss-System');
     expect(info.timeControl).toContain('15 MINUTES');
+    expect(info.timeControlType).toBe('rapid');
     expect(info.totalRounds).toBe(7);
     expect(info.currentRound).toBe(5);
     expect(info.playerCount).toBe(73);

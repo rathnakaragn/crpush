@@ -5,6 +5,7 @@ import { chessSessions, notifications, settings, workerLogs } from "./schema";
 import {
   checkForUpdates,
   shouldRunCron,
+  pollCadence,
   fetchPlayerData,
   calculatePoints,
   calculateTotalRatingChange,
@@ -665,10 +666,12 @@ export default {
       ? hour >= nightStart || hour < nightEnd
       : hour >= nightStart && hour < nightEnd;
 
-    const runningCount = await db.select({ count: sql<number>`count(*)` })
+    const runningRows = await db.select({ data: chessSessions.data })
       .from(chessSessions).where(eq(chessSessions.status, "running"));
-    const activeSessions = runningCount[0]?.count ?? 0;
-    if (!shouldRunCron(activeSessions, isNight, new Date().getUTCMinutes())) return;
+    const activeTypes = runningRows.map(r => {
+      try { return JSON.parse(r.data ?? "{}").time_control_type as string | undefined; } catch { return undefined; }
+    });
+    if (!shouldRunCron(pollCadence(activeTypes, isNight), new Date().getUTCMinutes())) return;
 
     const appToken = settingsMap["pushover_app_token"] || "";
     const userKey = settingsMap["pushover_user_key"] || "";

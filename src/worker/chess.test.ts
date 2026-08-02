@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { calculatePoints, calculateTotalRatingChange, parseSessionData, shouldRunCron, isRateLimitedHtml } from './chess';
+import { calculatePoints, calculateTotalRatingChange, parseSessionData, shouldRunCron, pollCadence, isRateLimitedHtml } from './chess';
 import type { ChessSession } from './chess';
 
 const makeSession = (overrides: Partial<ChessSession> = {}): ChessSession => ({
@@ -118,22 +118,32 @@ describe("quiet hours logic", () => {
   });
 });
 
+describe('pollCadence', () => {
+  it('polls every minute for blitz, rapid, and unknown time controls', () => {
+    expect(pollCadence(['rapid'], false)).toBe(1);
+    expect(pollCadence(['blitz'], false)).toBe(1);
+    expect(pollCadence([undefined], false)).toBe(1);
+    expect(pollCadence(['standard', 'rapid'], false)).toBe(1);
+  });
+
+  it('polls every 10th minute when only classical tournaments run', () => {
+    expect(pollCadence(['standard'], false)).toBe(10);
+    expect(pollCadence(['standard', 'standard'], false)).toBe(10);
+  });
+
+  it('polls every 5th minute when idle or during quiet hours', () => {
+    expect(pollCadence([], false)).toBe(5);
+    expect(pollCadence(['rapid'], true)).toBe(5);
+  });
+});
+
 describe('shouldRunCron', () => {
-  it('runs every minute when sessions are active outside quiet hours', () => {
-    expect(shouldRunCron(1, false, 7)).toBe(true);
-    expect(shouldRunCron(3, false, 59)).toBe(true);
-  });
-
-  it('falls back to every 5th minute when idle', () => {
-    expect(shouldRunCron(0, false, 0)).toBe(true);
-    expect(shouldRunCron(0, false, 55)).toBe(true);
-    expect(shouldRunCron(0, false, 7)).toBe(false);
-    expect(shouldRunCron(0, false, 59)).toBe(false);
-  });
-
-  it('falls back to every 5th minute during quiet hours even with active sessions', () => {
-    expect(shouldRunCron(2, true, 10)).toBe(true);
-    expect(shouldRunCron(2, true, 11)).toBe(false);
+  it('runs on minutes divisible by the cadence', () => {
+    expect(shouldRunCron(1, 7)).toBe(true);
+    expect(shouldRunCron(5, 55)).toBe(true);
+    expect(shouldRunCron(5, 7)).toBe(false);
+    expect(shouldRunCron(10, 40)).toBe(true);
+    expect(shouldRunCron(10, 41)).toBe(false);
   });
 });
 

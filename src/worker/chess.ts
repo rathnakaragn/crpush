@@ -32,6 +32,7 @@ export interface MatchData {
 export interface SessionData {
   tournament_name?: string;
   time_control?: string;
+  time_control_type?: string;
   total_rounds: number;
   completed_rounds: number;
   player: {
@@ -64,6 +65,7 @@ export interface TournamentInfo {
   location: string;
   dates: string;
   timeControl: string;
+  timeControlType: 'blitz' | 'rapid' | 'standard' | null;
   tournamentType: string;
   totalRounds: number;
   currentRound: number;
@@ -110,6 +112,7 @@ export function parseSessionData(session: ChessSession): SessionData {
     return {
       tournament_name: d.tournament_name,
       time_control: d.time_control,
+      time_control_type: d.time_control_type,
       total_rounds: d.total_rounds || 0,
       completed_rounds: d.completed_rounds || 0,
       player: d.player || EMPTY_SESSION_DATA.player,
@@ -288,7 +291,11 @@ export function parseTournamentHtml(standingsHtml: string, detailsHtml?: string)
     };
     const organizer = extractField('Organizer\\(s\\)');
     const federation = extractField('Federation');
-    const timeControl = extractField('Time control \\(Blitz\\)') || extractField('Time control \\(Rapid\\)') || extractField('Time control \\(Standard\\)') || extractField('Time control');
+    const tcBlitz = extractField('Time control \\(Blitz\\)');
+    const tcRapid = extractField('Time control \\(Rapid\\)');
+    const tcStandard = extractField('Time control \\(Standard\\)');
+    const timeControl = tcBlitz || tcRapid || tcStandard || extractField('Time control');
+    const timeControlType: TournamentInfo['timeControlType'] = tcBlitz ? 'blitz' : tcRapid ? 'rapid' : tcStandard ? 'standard' : null;
     const location = extractField('Location');
     const totalRoundsStr = extractField('Number of rounds');
     const tournamentType = extractField('Tournament type');
@@ -307,7 +314,7 @@ export function parseTournamentHtml(standingsHtml: string, detailsHtml?: string)
       totalRounds = roundNumbers.length > 0 ? Math.max(...roundNumbers) : 0;
     }
     if (totalRounds === 0 && currentRound > 0) totalRounds = currentRound;
-    return { name, organizer, federation, location, dates, timeControl, tournamentType, totalRounds, currentRound, playerCount: standings.length, avgRating, lastUpdate, standings };
+    return { name, organizer, federation, location, dates, timeControl, timeControlType, tournamentType, totalRounds, currentRound, playerCount: standings.length, avgRating, lastUpdate, standings };
   } catch (err) {
     console.error('Error parsing tournament HTML:', err);
     return null;
@@ -541,12 +548,18 @@ async function checkPlayerUpdate(
   db: AppDB,
   session: ChessSession,
   writeLog: (msg: string, level?: 'info' | 'warn' | 'error', source?: string) => Promise<void>,
+  timeControlType?: string | null,
 ): Promise<Notification[]> {
   const notifications: Notification[] = [];
   try {
     const oldData = parseSessionData(session);
     // Pass original URL to preserve params like SNode (multi-section tournaments)
     const newData = await fetchPlayerData(session.server, session.tournament_id, session.player_snr, session.federation, session.url);
+    if (newData) {
+      // Category comes from the tournament details page (player pages often
+      // lack it); it drives the adaptive poll cadence.
+      newData.time_control_type = timeControlType ?? oldData.time_control_type;
+    }
     if (!newData) {
       console.warn(`[chess] Could not fetch player data for session ${session.id}`);
       await recordFetchFailure(db, session, writeLog);
@@ -587,13 +600,21 @@ async function checkPlayerUpdate(
   return notifications;
 }
 
-// Cron fires every minute; poll at full speed only when a session is live and
-// notifications can actually be delivered. Idle or quiet hours → every 5th
-// minute, matching the old cadence. Any real-world UTC offset is a multiple of
-// 15 minutes, so minute-divisibility is timezone-independent.
-export function shouldRunCron(activeSessions: number, isNight: boolean, minute: number): boolean {
-  if (activeSessions > 0 && !isNight) return true;
-  return minute % 5 === 0;
+// Cron fires every minute; the handler self-paces by what's actually running.
+// Blitz/rapid (and unknown, which is usually rapid here) poll every minute so
+// pairings arrive before the round starts; classical games last hours, so
+// standard-only tournaments poll every 10th minute to conserve the
+// chess-results.com daily request budget. Idle or quiet hours → every 5th
+// minute. Any real-world UTC offset is a multiple of 15 minutes, so
+// minute-divisibility is timezone-independent.
+export function pollCadence(activeTypes: Array<string | undefined>, isNight: boolean): number {
+  if (activeTypes.length === 0 || isNight) return 5;
+  const allStandard = activeTypes.every(t => t === 'standard');
+  return allStandard ? 10 : 1;
+}
+
+export function shouldRunCron(cadenceMinutes: number, minute: number): boolean {
+  return minute % cadenceMinutes === 0;
 }
 
 export interface PollResult {
@@ -747,7 +768,7 @@ async function runCycle(
 
         if (needsFetch) {
           await new Promise(r => setTimeout(r, REQUEST_DELAY_MS));
-          const notifications = await checkPlayerUpdate(db, session, writeLog);
+          const notifications = await checkPlayerUpdate(db, session, writeLog, tournamentData?.timeControlType);
 
           for (const notification of notifications) {
             const { title, message } = formatNotification(notification);

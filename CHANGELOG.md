@@ -6,6 +6,8 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.2.6] - 2026-08-02
+
 ### Fixed
 
 - Notifications page and worker log timestamps now render in the configured
@@ -13,6 +15,13 @@ All notable changes to this project are documented here. Format follows
 - Cron errors and crashes now alert via Pushover (`url` made optional in
   `sendPushover`).
 - Unsent notifications are retried on each cron/poll cycle (24-hour window).
+- `src` typecheck errors resolved (unused imports, `cloudflare:test` types for
+  integration tests).
+
+### Changed
+
+- Adopted `just ci` pre-push gate and milestone tagging workflow (justfile
+  replaces Makefile; changelog added).
 
 ## [1.2.5] - 2026-06-12
 
@@ -82,7 +91,8 @@ Initial release.
 - HTML escaped in all template interpolations (XSS prevention).
 - Dashboard password hashed with PBKDF2.
 
-[Unreleased]: https://github.com/rathnakaragn/crpush/compare/v1.2.5...HEAD
+[Unreleased]: https://github.com/rathnakaragn/crpush/compare/v1.2.6...HEAD
+[1.2.6]: https://github.com/rathnakaragn/crpush/compare/v1.2.5...v1.2.6
 [1.2.5]: https://github.com/rathnakaragn/crpush/compare/v1.2.4...v1.2.5
 [1.2.4]: https://github.com/rathnakaragn/crpush/compare/v1.2.3...v1.2.4
 [1.2.3]: https://github.com/rathnakaragn/crpush/compare/v1.2.2...v1.2.3

@@ -6,6 +6,11 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Synced dashboard-only Worker settings into `wrangler.json` (smart placement,
+  observability logs) so deploys no longer revert them.
+
 ## [1.2.6] - 2026-08-02
 
 ### Fixed

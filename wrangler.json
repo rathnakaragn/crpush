@@ -2,6 +2,10 @@
   "name": "crpush",
   "main": "src/worker/index.ts",
   "compatibility_date": "2025-01-01",
+  "placement": { "mode": "smart" },
+  "observability": {
+    "logs": { "enabled": true }
+  },
   "d1_databases": [
     {
       "binding": "DB",

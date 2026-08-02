@@ -6,6 +6,8 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-08-02
+
 ### Changed
 
 - Quiet hours now defer notifications instead of skipping polling: the cron
@@ -137,7 +139,8 @@ Initial release.
 - HTML escaped in all template interpolations (XSS prevention).
 - Dashboard password hashed with PBKDF2.
 
-[Unreleased]: https://github.com/rathnakaragn/crpush/compare/v1.2.8...HEAD
+[Unreleased]: https://github.com/rathnakaragn/crpush/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/rathnakaragn/crpush/compare/v1.2.8...v1.3.0
 [1.2.8]: https://github.com/rathnakaragn/crpush/compare/v1.2.7...v1.2.8
 [1.2.7]: https://github.com/rathnakaragn/crpush/compare/v1.2.6...v1.2.7
 [1.2.6]: https://github.com/rathnakaragn/crpush/compare/v1.2.5...v1.2.6

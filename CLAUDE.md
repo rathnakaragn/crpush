@@ -108,3 +108,17 @@ wrangler d1 create crpush
 wrangler d1 execute crpush --remote --file=schema.sql
 npm run deploy
 ```
+
+### Toolchain notes (Aug 2026 cleanup)
+
+- **Node:** wrangler 4 requires Node v22+. The one true Node is Homebrew's
+  `node` (v26) at `/opt/homebrew/bin/node`. A stale root-owned symlink
+  `/usr/local/bin/node → node@20` used to shadow it (PATH puts `/usr/local/bin`
+  first) — it and the `node@20` formula were removed. Don't recreate symlinks
+  in `/usr/local/bin`.
+- **Auth:** wrangler uses an OAuth token; when it expires non-interactive
+  deploys fail — re-auth with `wrangler login` in an interactive terminal.
+- **Config drift:** `wrangler deploy` overrides dashboard settings with
+  `wrangler.json`. Dashboard-enabled settings (smart placement, observability
+  logs) are synced into `wrangler.json` — if you toggle anything in the
+  Cloudflare dashboard, mirror it there or the next deploy reverts it.

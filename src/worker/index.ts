@@ -10,7 +10,7 @@ import {
   parseSessionData, type ChessSession,
 } from "./chess";
 import { sendPushover } from "./pushover";
-import { b64url, cookieKey, makeSessionCookie, verifySessionCookie } from "./auth";
+import { makeSessionCookie, verifySessionCookie } from "./auth";
 import {
   getSetting,
   writeLog,

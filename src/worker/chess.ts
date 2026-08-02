@@ -575,6 +575,15 @@ async function checkPlayerUpdate(
   return notifications;
 }
 
+// Cron fires every minute; poll at full speed only when a session is live and
+// notifications can actually be delivered. Idle or quiet hours → every 5th
+// minute, matching the old cadence. Any real-world UTC offset is a multiple of
+// 15 minutes, so minute-divisibility is timezone-independent.
+export function shouldRunCron(activeSessions: number, isNight: boolean, minute: number): boolean {
+  if (activeSessions > 0 && !isNight) return true;
+  return minute % 5 === 0;
+}
+
 export interface PollResult {
   sessions: number;
   notifications: number;

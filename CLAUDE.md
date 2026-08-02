@@ -82,7 +82,7 @@ src/worker/
   pushover.ts   — Pushover API client
   *.test.ts     — unit tests (pure functions only)
 schema.sql      — D1 schema (run via wrangler d1 execute)
-wrangler.json   — Worker config: D1 binding + cron trigger (*/5 * * * *)
+wrangler.json   — Worker config: D1 binding + cron trigger (* * * * *; handler self-paces: 1-min with a running session, 5-min idle/quiet)
 ```
 
 ## TypeScript Rules

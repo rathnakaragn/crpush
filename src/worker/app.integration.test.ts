@@ -303,6 +303,12 @@ describe("POST /sessions/:id/delete", () => {
 
 describe("scheduled (cron)", () => {
   it("prunes worker logs older than 30 days and sent notifications older than 90 days", async () => {
+    // Disable quiet hours and add a running session so the every-minute cron
+    // pacing (shouldRunCron) always takes the full-speed path in this test.
+    await env.DB.prepare("INSERT INTO settings (key, value) VALUES ('night_start_hour', '0'), ('night_end_hour', '0')").run();
+    await env.DB.prepare(
+      "INSERT INTO chess_sessions (url, tournament_id, player_snr, server, federation, status) VALUES ('https://chess-results.com/tnr999999.aspx?lan=1&art=9&fed=IND&snr=1', 'tnr999999', '1', '', 'IND', 'running')"
+    ).run();
     await env.DB.prepare(
       "INSERT INTO worker_logs (level, source, message, created_at) VALUES ('info', 'test', 'old-log', datetime('now', '-40 days'))"
     ).run();
@@ -312,7 +318,7 @@ describe("scheduled (cron)", () => {
     await env.DB.prepare(
       "INSERT INTO chess_sessions (url, tournament_id, player_snr, server, federation, status) VALUES (?, 'tnr123456', '42', '', 'IND', 'completed')"
     ).bind(VALID_SESSION_URL).run();
-    const { results } = await env.DB.prepare("SELECT id FROM chess_sessions").all<{ id: number }>();
+    const { results } = await env.DB.prepare("SELECT id FROM chess_sessions WHERE status = 'completed'").all<{ id: number }>();
     const id = results[0].id;
     await env.DB.prepare(
       "INSERT INTO notifications (session_id, type, title, message, sent, round_number, created_at) VALUES (?, 'result', 'old', 'm', 1, 1, datetime('now', '-100 days'))"
@@ -335,7 +341,9 @@ describe("scheduled (cron)", () => {
 
   it("marks a session as error after 3 consecutive fetch failures", async () => {
     // Outbound fetches fail in the test environment, so every cron run is a
-    // fetch failure for the session.
+    // fetch failure for the session. Quiet hours are disabled so the
+    // every-minute cron pacing always takes the full-speed path.
+    await env.DB.prepare("INSERT INTO settings (key, value) VALUES ('night_start_hour', '0'), ('night_end_hour', '0')").run();
     await env.DB.prepare(
       "INSERT INTO chess_sessions (url, tournament_id, player_snr, server, federation, status) VALUES (?, 'tnr123456', '42', '', 'IND', 'running')"
     ).bind(VALID_SESSION_URL).run();

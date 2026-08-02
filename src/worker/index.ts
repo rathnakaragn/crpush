@@ -4,6 +4,7 @@ import { getDb } from "./drizzle";
 import { chessSessions, notifications, settings, workerLogs } from "./schema";
 import {
   checkForUpdates,
+  shouldRunCron,
   fetchPlayerData,
   calculatePoints,
   calculateTotalRatingChange,
@@ -659,6 +660,11 @@ export default {
     const isNight = nightStart > nightEnd
       ? hour >= nightStart || hour < nightEnd
       : hour >= nightStart && hour < nightEnd;
+
+    const runningCount = await db.select({ count: sql<number>`count(*)` })
+      .from(chessSessions).where(eq(chessSessions.status, "running"));
+    const activeSessions = runningCount[0]?.count ?? 0;
+    if (!shouldRunCron(activeSessions, isNight, new Date().getUTCMinutes())) return;
 
     const appToken = settingsMap["pushover_app_token"] || "";
     const userKey = settingsMap["pushover_user_key"] || "";

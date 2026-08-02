@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { calculatePoints, calculateTotalRatingChange, parseSessionData } from './chess';
+import { calculatePoints, calculateTotalRatingChange, parseSessionData, shouldRunCron } from './chess';
 import type { ChessSession } from './chess';
 
 const makeSession = (overrides: Partial<ChessSession> = {}): ChessSession => ({
@@ -115,5 +115,24 @@ describe("quiet hours logic", () => {
 
   it("boundary: nightEnd hour is not quiet", () => {
     expect(isQuietHour(6, 23, 6)).toBe(false);
+  });
+});
+
+describe('shouldRunCron', () => {
+  it('runs every minute when sessions are active outside quiet hours', () => {
+    expect(shouldRunCron(1, false, 7)).toBe(true);
+    expect(shouldRunCron(3, false, 59)).toBe(true);
+  });
+
+  it('falls back to every 5th minute when idle', () => {
+    expect(shouldRunCron(0, false, 0)).toBe(true);
+    expect(shouldRunCron(0, false, 55)).toBe(true);
+    expect(shouldRunCron(0, false, 7)).toBe(false);
+    expect(shouldRunCron(0, false, 59)).toBe(false);
+  });
+
+  it('falls back to every 5th minute during quiet hours even with active sessions', () => {
+    expect(shouldRunCron(2, true, 10)).toBe(true);
+    expect(shouldRunCron(2, true, 11)).toBe(false);
   });
 });

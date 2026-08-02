@@ -6,6 +6,12 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Adaptive poll cadence: the cron now fires every minute, but the handler
+  polls at full speed only while a session is running outside quiet hours —
+  idle or quiet-hours cycles keep the old 5-minute cadence (`shouldRunCron`).
+
 ## [1.4.0] - 2026-08-02
 
 ### Added

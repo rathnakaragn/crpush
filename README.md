@@ -69,7 +69,7 @@ Log in with your `AUTH_PASSWORD` (set via `wrangler secret put AUTH_PASSWORD`).
 |---------|---------|-----------|
 | Timezone | `Asia/Kolkata` | Settings page |
 | Quiet hours | 23:00–06:00 | Settings page |
-| Cron interval | every 5 minutes | `wrangler.json` → `triggers.crons` |
+| Cron interval | every minute with a running session; every 5 minutes when idle or during quiet hours | `wrangler.json` → `triggers.crons` |
 
 ## Commands
 

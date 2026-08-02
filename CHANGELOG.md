@@ -8,11 +8,15 @@ All notable changes to this project are documented here. Format follows
 
 ### Changed
 
-- Poll cadence is now time-control aware: the tournament details page's
-  time-control category (blitz/rapid/standard) is captured on each session;
-  blitz/rapid (and unknown) poll every minute, classical-only tournaments
-  every 10 minutes — conserving the chess-results.com daily request budget
-  where minute-level updates can't exist. Idle/quiet-hours cadence unchanged.
+- Poll cadence is now phase- and time-control aware: sessions awaiting a
+  pairing (incl. before round 1) poll every minute so the board number arrives
+  before the round; while a round is in progress the cadence relaxes to the
+  base time control (e.g. 15+5 → every 15 min, clamped 5–15) since nothing can
+  change mid-game. The time-control category and string are captured from the
+  tournament details page onto each session. Idle/quiet-hours cadence unchanged.
+- Later-round pairing detection fixed: a pairing published without any
+  standings change (the standings header only advances on results) is now
+  caught — the player page stays watched whenever no future pairing is known.
 - Rate-limit handling: chess-results.com's daily-limit page now aborts the
   cycle, pauses all polling for 30 minutes, and sends one alert — instead of
   counting as per-session fetch failures (which, at 1-minute cadence, flipped

@@ -668,10 +668,8 @@ export default {
 
     const runningRows = await db.select({ data: chessSessions.data })
       .from(chessSessions).where(eq(chessSessions.status, "running"));
-    const activeTypes = runningRows.map(r => {
-      try { return JSON.parse(r.data ?? "{}").time_control_type as string | undefined; } catch { return undefined; }
-    });
-    if (!shouldRunCron(pollCadence(activeTypes, isNight), new Date().getUTCMinutes())) return;
+    const activeData = runningRows.map(r => parseSessionData({ data: r.data ?? "{}" } as ChessSession));
+    if (!shouldRunCron(pollCadence(activeData, isNight), new Date().getUTCMinutes())) return;
 
     const appToken = settingsMap["pushover_app_token"] || "";
     const userKey = settingsMap["pushover_user_key"] || "";

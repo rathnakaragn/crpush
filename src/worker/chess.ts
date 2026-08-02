@@ -548,7 +548,7 @@ async function checkPlayerUpdate(
   db: AppDB,
   session: ChessSession,
   writeLog: (msg: string, level?: 'info' | 'warn' | 'error', source?: string) => Promise<void>,
-  timeControlType?: string | null,
+  tournament?: TournamentInfo | null,
 ): Promise<Notification[]> {
   const notifications: Notification[] = [];
   try {
@@ -556,9 +556,10 @@ async function checkPlayerUpdate(
     // Pass original URL to preserve params like SNode (multi-section tournaments)
     const newData = await fetchPlayerData(session.server, session.tournament_id, session.player_snr, session.federation, session.url);
     if (newData) {
-      // Category comes from the tournament details page (player pages often
-      // lack it); it drives the adaptive poll cadence.
-      newData.time_control_type = timeControlType ?? oldData.time_control_type;
+      // Category and time control come from the tournament details page
+      // (player pages often lack them); they drive the adaptive poll cadence.
+      newData.time_control_type = tournament?.timeControlType ?? oldData.time_control_type;
+      if (!newData.time_control) newData.time_control = tournament?.timeControl || oldData.time_control;
     }
     if (!newData) {
       console.warn(`[chess] Could not fetch player data for session ${session.id}`);
@@ -600,17 +601,38 @@ async function checkPlayerUpdate(
   return notifications;
 }
 
-// Cron fires every minute; the handler self-paces by what's actually running.
-// Blitz/rapid (and unknown, which is usually rapid here) poll every minute so
-// pairings arrive before the round starts; classical games last hours, so
-// standard-only tournaments poll every 10th minute to conserve the
-// chess-results.com daily request budget. Idle or quiet hours → every 5th
-// minute. Any real-world UTC offset is a multiple of 15 minutes, so
+// Extracts the base thinking time in minutes from a time-control string like
+// "15 MINUTES +5 SECONDS BONUS FROM MOVE 1", "15+5", or "90 min + 30 sec".
+export function parseBaseMinutes(timeControl?: string): number | null {
+  if (!timeControl) return null;
+  const m = timeControl.match(/(\d+)\s*(?:min|minutes|')/i) || timeControl.match(/^\s*(\d+)\s*\+/);
+  return m ? parseInt(m[1], 10) : null;
+}
+
+// Cron fires every minute; the handler self-paces per session phase:
+// - awaiting a pairing (before round 1, or last result is in and the next
+//   round isn't paired yet): every minute — the only window where speed
+//   matters, since the board number must arrive before the round starts.
+//   Classical events pair long before rounds, so standard eases to 5.
+// - round in progress (pairing known, result pending): nothing can happen for
+//   roughly the base time control, so poll every base-minutes (clamped 5–15).
+// The fastest session wins for the whole cycle. Idle or quiet hours → every
+// 5th minute. Any real-world UTC offset is a multiple of 15 minutes, so
 // minute-divisibility is timezone-independent.
-export function pollCadence(activeTypes: Array<string | undefined>, isNight: boolean): number {
-  if (activeTypes.length === 0 || isNight) return 5;
-  const allStandard = activeTypes.every(t => t === 'standard');
-  return allStandard ? 10 : 1;
+export function sessionCadence(d: SessionData): number {
+  const type = d.time_control_type;
+  const inRound = d.matches.length > 0 && d.matches.some(m => !isMatchCompleted(m.result));
+  if (inRound) {
+    const base = parseBaseMinutes(d.time_control);
+    if (base != null) return Math.min(15, Math.max(5, base));
+    return type === 'blitz' || type == null ? 5 : 15;
+  }
+  return type === 'standard' ? 5 : 1;
+}
+
+export function pollCadence(sessions: SessionData[], isNight: boolean): number {
+  if (sessions.length === 0 || isNight) return 5;
+  return Math.min(...sessions.map(sessionCadence));
 }
 
 export function shouldRunCron(cadenceMinutes: number, minute: number): boolean {
@@ -759,7 +781,10 @@ async function runCycle(
 
         if (tournamentData) {
           const standing = findPlayerInStandings(tournamentData.standings, oldData.player.name);
-          const hasNewRound = tournamentData.currentRound > oldData.matches.length;
+          // >= (not >): when all known rounds have results, the next pairing
+          // can appear without any standings change — keep watching the
+          // player page until it does.
+          const hasNewRound = tournamentData.currentRound >= oldData.matches.length;
           needsFetch = !standing || hasStandingsChanged(oldData, standing) || hasNewRound;
           if (!needsFetch) {
             await writeLog(`No change for ${oldData.player.name} in ${oldData.tournament_name || tournamentId}`, 'info', 'cron');
@@ -768,7 +793,7 @@ async function runCycle(
 
         if (needsFetch) {
           await new Promise(r => setTimeout(r, REQUEST_DELAY_MS));
-          const notifications = await checkPlayerUpdate(db, session, writeLog, tournamentData?.timeControlType);
+          const notifications = await checkPlayerUpdate(db, session, writeLog, tournamentData);
 
           for (const notification of notifications) {
             const { title, message } = formatNotification(notification);

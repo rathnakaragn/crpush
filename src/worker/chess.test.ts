@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { calculatePoints, calculateTotalRatingChange, parseSessionData, shouldRunCron, pollCadence, isRateLimitedHtml } from './chess';
+import { calculatePoints, calculateTotalRatingChange, parseSessionData, shouldRunCron, pollCadence, sessionCadence, parseBaseMinutes, isRateLimitedHtml } from './chess';
 import type { ChessSession } from './chess';
 
 const makeSession = (overrides: Partial<ChessSession> = {}): ChessSession => ({
@@ -118,22 +118,72 @@ describe("quiet hours logic", () => {
   });
 });
 
-describe('pollCadence', () => {
-  it('polls every minute for blitz, rapid, and unknown time controls', () => {
-    expect(pollCadence(['rapid'], false)).toBe(1);
-    expect(pollCadence(['blitz'], false)).toBe(1);
-    expect(pollCadence([undefined], false)).toBe(1);
-    expect(pollCadence(['standard', 'rapid'], false)).toBe(1);
+describe('parseBaseMinutes', () => {
+  it('parses chess-results style time controls', () => {
+    expect(parseBaseMinutes('15 MINUTES +5 SECONDS BONUS FROM MOVE NUMBER 1')).toBe(15);
+    expect(parseBaseMinutes('90 min + 30 sec/move')).toBe(90);
+    expect(parseBaseMinutes('15+5')).toBe(15);
+    expect(parseBaseMinutes("25'+10\"")).toBe(25);
   });
 
-  it('polls every 10th minute when only classical tournaments run', () => {
-    expect(pollCadence(['standard'], false)).toBe(10);
-    expect(pollCadence(['standard', 'standard'], false)).toBe(10);
+  it('returns null for missing or unparseable values', () => {
+    expect(parseBaseMinutes(undefined)).toBeNull();
+    expect(parseBaseMinutes('unknown')).toBeNull();
+  });
+});
+
+const sessionData = (overrides: Record<string, unknown> = {}) => ({
+  total_rounds: 7, completed_rounds: 3,
+  player: { name: 'X', current_rank: '1', starting_rank: '1', rating: 0, kFactor: 20 },
+  ratingChange: 0, performanceRating: 0, matches: [],
+  ...overrides,
+});
+const resultMatch = (round: number) => ({ round_number: round, opponent_name: 'A', opponent_rank: '1', opponent_rating: 0, color: 'White', result: '1', board: '1' });
+const pairingMatch = (round: number) => ({ ...resultMatch(round), result: '' });
+
+describe('sessionCadence', () => {
+  it('polls every minute while awaiting a pairing (incl. before round 1)', () => {
+    expect(sessionCadence(sessionData({ time_control_type: 'rapid' }))).toBe(1);
+    expect(sessionCadence(sessionData({ time_control_type: 'rapid', matches: [resultMatch(1)] }))).toBe(1);
+    expect(sessionCadence(sessionData({}))).toBe(1);
+  });
+
+  it('relaxes to base time control minutes while a round is in progress', () => {
+    const inRound = sessionData({
+      time_control_type: 'rapid',
+      time_control: '15 MINUTES +5 SECONDS BONUS FROM MOVE NUMBER 1',
+      matches: [resultMatch(1), pairingMatch(2)],
+    });
+    expect(sessionCadence(inRound)).toBe(15);
+  });
+
+  it('clamps in-round cadence to 5–15 minutes', () => {
+    expect(sessionCadence(sessionData({ time_control: '3+2', matches: [pairingMatch(1)] }))).toBe(5);
+    expect(sessionCadence(sessionData({ time_control: '90 min + 30 sec', matches: [pairingMatch(1)] }))).toBe(15);
+  });
+
+  it('falls back by category when the time control is unparseable', () => {
+    expect(sessionCadence(sessionData({ time_control_type: 'blitz', matches: [pairingMatch(1)] }))).toBe(5);
+    expect(sessionCadence(sessionData({ time_control_type: 'rapid', matches: [pairingMatch(1)] }))).toBe(15);
+    expect(sessionCadence(sessionData({ matches: [pairingMatch(1)] }))).toBe(5);
+  });
+
+  it('eases the pairing watch to 5 min for classical events', () => {
+    expect(sessionCadence(sessionData({ time_control_type: 'standard' }))).toBe(5);
+  });
+});
+
+describe('pollCadence', () => {
+  it('lets the fastest session win', () => {
+    const awaiting = sessionData({ time_control_type: 'rapid' });
+    const inRound = sessionData({ time_control: '15+5', matches: [pairingMatch(1)] });
+    expect(pollCadence([inRound, awaiting], false)).toBe(1);
+    expect(pollCadence([inRound], false)).toBe(15);
   });
 
   it('polls every 5th minute when idle or during quiet hours', () => {
     expect(pollCadence([], false)).toBe(5);
-    expect(pollCadence(['rapid'], true)).toBe(5);
+    expect(pollCadence([sessionData({})], true)).toBe(5);
   });
 });
 

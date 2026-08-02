@@ -35,3 +35,15 @@ describe("parseChessUrl", () => {
     expect(result?.tournament_id).toBe("tnr5");
   });
 });
+
+describe("parseChessUrl hostname strictness", () => {
+  it("rejects lookalike hostnames that merely contain chess-results.com", () => {
+    expect(parseChessUrl("https://chess-results.com.evil.example/tnr123.aspx?snr=1")).toBeNull();
+    expect(parseChessUrl("https://notchess-results.com/tnr123.aspx?snr=1")).toBeNull();
+  });
+
+  it("accepts the apex domain and real subdomains", () => {
+    expect(parseChessUrl("https://chess-results.com/tnr123.aspx?snr=1")).not.toBeNull();
+    expect(parseChessUrl("https://s2.chess-results.com/tnr123.aspx?snr=1")?.server).toBe("s2");
+  });
+});

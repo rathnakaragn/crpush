@@ -551,6 +551,12 @@ async function checkPlayerUpdate(
   tournament?: TournamentInfo | null,
 ): Promise<Notification[]> {
   const notifications: Notification[] = [];
+  // A literal '{}' snapshot means the add-time fetch failed: adopt the first
+  // successful fetch as the baseline without notifying, or a mid-tournament
+  // add would burst notifications for every past round. (A successful
+  // pre-tournament fetch stores player info, not '{}', so real round-1
+  // pairings still notify.)
+  const isBaselineAdoption = (session.data || "{}").trim() === "{}";
   try {
     const oldData = parseSessionData(session);
     // Pass original URL to preserve params like SNode (multi-section tournaments)
@@ -593,6 +599,10 @@ async function checkPlayerUpdate(
     await db.update(chessSessions)
       .set({ data: JSON.stringify(newData), failCount: 0, updatedAt: sql`(datetime('now'))` })
       .where(eq(chessSessions.id, session.id));
+    if (isBaselineAdoption && notifications.length > 0) {
+      await writeLog(`Adopted baseline snapshot for session ${session.id} silently (${notifications.length} past event(s) not notified)`, 'info', 'cron');
+      notifications.length = 0;
+    }
   } catch (err) {
     if (err instanceof RateLimitError) throw err;
     console.error(`[chess] Error checking session ${session.id}:`, err);

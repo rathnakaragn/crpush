@@ -24,7 +24,7 @@ export async function writeLog(db: AppDB, message: string, level: "info" | "warn
 export function parseChessUrl(url: string): { server: string; tournament_id: string; player_snr: string; federation: string } | null {
   try {
     const u = new URL(url.startsWith("http") ? url : `https://${url}`);
-    if (!u.hostname.includes("chess-results.com")) return null;
+    if (u.hostname !== "chess-results.com" && !u.hostname.endsWith(".chess-results.com")) return null;
     const parts = u.hostname.split(".");
     const server = parts.length > 2 ? parts[0] : "";
     const pathMatch = u.pathname.match(/\/(tnr\d+)\.aspx/i);

@@ -164,11 +164,37 @@ describe("POST /sessions", () => {
       body: `url=${encodeURIComponent(VALID_SESSION_URL)}`,
     });
     expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe("/");
-    const { results } = await env.DB.prepare("SELECT * FROM chess_sessions").all<{ url: string; status: string }>();
+    // Outbound fetches fail in the test env, so the add warns about the
+    // missing snapshot but still creates the session
+    expect(res.headers.get("Location")).toBe("/?warn=fetch-failed");
+    const { results } = await env.DB.prepare("SELECT * FROM chess_sessions").all<{ url: string; status: string; data: string }>();
     expect(results).toHaveLength(1);
     expect(results[0].url).toBe(VALID_SESSION_URL);
     expect(results[0].status).toBe("running");
+    expect(results[0].data).toBe("{}");
+  });
+
+  it("detects duplicates across different URL forms of the same player", async () => {
+    await env.DB.prepare(
+      "INSERT INTO chess_sessions (url, tournament_id, player_snr, server, federation) VALUES (?, 'tnr123456', '42', '', 'IND')"
+    ).bind(VALID_SESSION_URL).run();
+
+    // Same tnr + snr, but different scheme, param order, and extra params
+    const variant = "http://chess-results.com/tnr123456.aspx?snr=42&fed=IND&turdet=YES";
+    const res = await authed("/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: `url=${encodeURIComponent(variant)}`,
+    });
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("/?error=duplicate");
+    const { results } = await env.DB.prepare("SELECT COUNT(*) as c FROM chess_sessions").all<{ c: number }>();
+    expect(results[0].c).toBe(1);
+  });
+
+  it("shows the fetch-failed warning banner", async () => {
+    const body = await (await authed("/?warn=fetch-failed")).text();
+    expect(body).toContain("be fetched yet — it will retry on the next poll");
   });
 
   it("does not create a duplicate running session for the same URL", async () => {

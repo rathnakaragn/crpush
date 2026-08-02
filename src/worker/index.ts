@@ -132,11 +132,15 @@ app.get("/", async (c) => {
   const errorMsg = errorParam === "invalid-url"
     ? "That doesn't look like a chess-results.com player URL — it needs a tnr number and an snr= parameter."
     : errorParam === "duplicate"
-    ? "Already monitoring this URL — see the running session below."
+    ? "Already monitoring this player — see the running session below."
+    : "";
+  const warnMsg = c.req.query("warn") === "fetch-failed"
+    ? "Session added, but player data couldn't be fetched yet — it will retry on the next poll. If it stays Unknown, double-check the URL."
     : "";
 
   const content = `
     ${errorMsg ? `<div class="mb-4 p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700">${errorMsg}</div>` : ""}
+    ${warnMsg ? `<div class="mb-4 p-3 bg-amber-50 border border-amber-200 rounded text-sm text-amber-700">${warnMsg}</div>` : ""}
     <div class="flex items-center justify-between mb-6">
       <div>
         <h1 class="text-2xl font-bold text-gray-900">Sessions</h1>
@@ -189,8 +193,15 @@ app.post("/sessions", async (c) => {
   if (!url) return c.redirect("/?error=invalid-url");
   const parsed = parseChessUrl(url);
   if (!parsed) return c.redirect("/?error=invalid-url");
+  // Dedup on what identifies the monitor, not the URL string — the same player
+  // pasted with different params (lan=, param order, http vs https) must match
   const existing = await db.select({ id: chessSessions.id }).from(chessSessions)
-    .where(and(eq(chessSessions.url, url), eq(chessSessions.status, "running"))).limit(1);
+    .where(and(
+      eq(chessSessions.tournamentId, parsed.tournament_id),
+      eq(chessSessions.playerSnr, parsed.player_snr),
+      eq(chessSessions.server, parsed.server),
+      eq(chessSessions.status, "running"),
+    )).limit(1);
   if (existing.length > 0) return c.redirect("/?error=duplicate");
   const initialData = await fetchPlayerData(parsed.server, parsed.tournament_id, parsed.player_snr, parsed.federation, url).catch(() => null);
   await db.insert(chessSessions).values({
@@ -198,7 +209,9 @@ app.post("/sessions", async (c) => {
     server: parsed.server, federation: parsed.federation,
     data: JSON.stringify(initialData ?? {})
   });
-  return c.redirect("/");
+  // No snapshot yet: the first successful poll adopts one silently (no stale
+  // notification burst), but tell the user in case the URL is a dead tnr
+  return c.redirect(initialData ? "/" : "/?warn=fetch-failed");
 });
 
 app.post("/sessions/:id/stop", async (c) => {

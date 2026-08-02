@@ -6,6 +6,17 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Adding a session while the snapshot fetch fails no longer causes a burst of
+  stale notifications later: the first successful poll adopts the baseline
+  silently, and the add shows a warning banner instead of failing silently.
+- Duplicate detection now matches on tournament + player + server instead of
+  the exact URL string — the same player pasted with different params or
+  scheme no longer creates a second session (and double notifications).
+- `parseChessUrl` rejects lookalike hostnames (e.g.
+  `chess-results.com.evil.example`) that previously passed the substring check.
+
 ### Added
 
 - Error banners on the dashboard when adding a monitor fails (invalid URL or

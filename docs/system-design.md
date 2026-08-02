@@ -1,6 +1,6 @@
 # System Design — crpush
 
-**Version:** 1.3.1  
+**Version:** 1.3.2  
 **Date:** 2026-06-12
 
 ---

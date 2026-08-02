@@ -8,6 +8,11 @@ All notable changes to this project are documented here. Format follows
 
 ### Changed
 
+- Schema management moved to drizzle-kit migrations: `src/worker/schema.ts` is
+  now the single source of truth (indexes, FK, and CHECK constraints included);
+  `schema.sql` is retired in favor of generated migrations in `drizzle/`
+  (`just db-generate` / `just db-migrate`). Production was baselined with an
+  idempotent init migration; integration tests apply the same chain.
 - Adaptive poll cadence: the cron now fires every minute, but the handler
   polls at full speed only while a session is running outside quiet hours —
   idle or quiet-hours cycles keep the old 5-minute cadence (`shouldRunCron`).

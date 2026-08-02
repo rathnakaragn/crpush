@@ -41,7 +41,7 @@ Copy the `database_id` from the output and replace `YOUR_D1_DATABASE_ID` in `wra
 ### 3. Run migrations
 
 ```bash
-wrangler d1 execute crpush --remote --file=schema.sql
+npx wrangler d1 migrations apply crpush --remote
 ```
 
 ### 4. Deploy

@@ -10,7 +10,8 @@
     {
       "binding": "DB",
       "database_name": "crpush",
-      "database_id": "4b6ebde5-847a-4346-b39f-2964b0387763"
+      "database_id": "4b6ebde5-847a-4346-b39f-2964b0387763",
+      "migrations_dir": "drizzle"
     }
   ],
   "triggers": {

@@ -1,11 +1,18 @@
 import { env } from "cloudflare:test";
 import { beforeEach } from "vitest";
-import schemaSql from "../../schema.sql?raw";
 
-// schema.sql is the single source of truth — tests always run against the
-// exact schema that gets applied to production via wrangler d1 execute.
+// The drizzle/ migration files are the single source of truth — tests apply
+// the same chain that `wrangler d1 migrations apply` runs against production.
+const migrationFiles = import.meta.glob("../../drizzle/*.sql", { query: "?raw", eager: true }) as Record<string, { default: string }>;
+
+const STATEMENTS = Object.keys(migrationFiles).sort().flatMap(path =>
+  migrationFiles[path].default
+    .split(";")
+    .map(s => s.replace(/--> statement-breakpoint/g, "").trim())
+    .filter(Boolean)
+);
+
 const DROP_ORDER = ["worker_logs", "settings", "notifications", "chess_sessions"];
-const STATEMENTS = schemaSql.split(";").map(s => s.trim()).filter(Boolean);
 
 beforeEach(async () => {
   for (const table of DROP_ORDER) {

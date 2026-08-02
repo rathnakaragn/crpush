@@ -39,6 +39,14 @@ css:
     rm -rf "$tmp"
     echo "src/worker/styles.ts regenerated"
 
+# generate a new D1 migration from src/worker/schema.ts changes
+db-generate name:
+    npx drizzle-kit generate --name {{name}}
+
+# apply pending migrations to the production D1 database
+db-migrate:
+    npx wrangler d1 migrations apply crpush --remote
+
 # deploy to Cloudflare, gated on ci + integration tests
 deploy: ci test-integration
     npm run deploy

@@ -256,7 +256,7 @@ No staging environment. Deploy directly to production on main.
 **Deploy checklist:**
 1. `wrangler d1 create crpush` (first time only)
 2. Set `database_id` in `wrangler.json`
-3. `wrangler d1 execute crpush --remote --file=schema.sql` (first time only)
+3. `npx wrangler d1 migrations apply crpush --remote` (first time and after schema changes)
 4. `npm run deploy`
 
 ---

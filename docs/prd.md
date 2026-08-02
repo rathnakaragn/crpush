@@ -183,7 +183,7 @@ When FIDE official rating change is not yet published, the dashboard computes an
 # One-time setup
 wrangler d1 create crpush
 # Update database_id in wrangler.json
-wrangler d1 execute crpush --remote --file=schema.sql
+npx wrangler d1 migrations apply crpush --remote
 npm run deploy
 
 # Subsequent deploys

@@ -8,6 +8,9 @@ All notable changes to this project are documented here. Format follows
 
 ### Added
 
+- Start button to resume stopped/errored sessions. Resume is silent: the data
+  snapshot is refreshed first so no catch-up notifications fire for rounds
+  played while stopped; if the refresh fails the session stays stopped (logged).
 - Per-type Pushover notification priorities, configurable on the Settings page:
   pairing defaults to high (bypasses Pushover quiet hours), result to normal,
   completion to low. Clamped to -2..1 — emergency priority is unsupported.

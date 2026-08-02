@@ -212,6 +212,38 @@ describe("POST /sessions/:id/toggle-notify", () => {
   });
 });
 
+describe("POST /sessions/:id/start", () => {
+  it("does not resume a completed session", async () => {
+    await env.DB.prepare(
+      "INSERT INTO chess_sessions (url, tournament_id, player_snr, server, federation, status) VALUES (?, 'tnr123456', '42', '', 'IND', 'completed')"
+    ).bind(VALID_SESSION_URL).run();
+    const { results } = await env.DB.prepare("SELECT id FROM chess_sessions").all<{ id: number }>();
+    const id = results[0].id;
+
+    const res = await authed(`/sessions/${id}/start`, { method: "POST" });
+    expect(res.status).toBe(302);
+
+    const row = await env.DB.prepare("SELECT status FROM chess_sessions WHERE id = ?").bind(id).first<{ status: string }>();
+    expect(row?.status).toBe("completed");
+  });
+
+  it("keeps a stopped session stopped when the snapshot refresh fails", async () => {
+    // Outbound fetches fail in the test environment, so fetchPlayerData
+    // returns null — the silent-resume precondition — and status must not flip.
+    await env.DB.prepare(
+      "INSERT INTO chess_sessions (url, tournament_id, player_snr, server, federation, status) VALUES (?, 'tnr123456', '42', '', 'IND', 'stopped')"
+    ).bind(VALID_SESSION_URL).run();
+    const { results } = await env.DB.prepare("SELECT id FROM chess_sessions").all<{ id: number }>();
+    const id = results[0].id;
+
+    const res = await authed(`/sessions/${id}/start`, { method: "POST" });
+    expect(res.status).toBe(302);
+
+    const row = await env.DB.prepare("SELECT status FROM chess_sessions WHERE id = ?").bind(id).first<{ status: string }>();
+    expect(row?.status).toBe("stopped");
+  });
+});
+
 describe("POST /sessions/:id/delete", () => {
   it("deletes a stopped session and its notifications", async () => {
     await env.DB.prepare(

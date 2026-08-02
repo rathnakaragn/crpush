@@ -103,7 +103,11 @@ app.get("/", async (c) => {
       ? `<form method="POST" action="/sessions/${fmt.id}/stop" class="inline" onsubmit="return confirm('Stop monitoring this player?')">
            <button type="submit" class="text-xs text-red-600 hover:text-red-800 font-medium">Stop</button>
          </form>`
-      : `<form method="POST" action="/sessions/${fmt.id}/delete" class="inline" onsubmit="return confirm('Delete this session and its notifications? This cannot be undone.')">
+      : `${fmt.status === "stopped" || fmt.status === "error"
+           ? `<form method="POST" action="/sessions/${fmt.id}/start" class="inline mr-2">
+                <button type="submit" class="text-xs text-green-600 hover:text-green-800 font-medium">Start</button>
+              </form>`
+           : ""}<form method="POST" action="/sessions/${fmt.id}/delete" class="inline" onsubmit="return confirm('Delete this session and its notifications? This cannot be undone.')">
            <button type="submit" class="text-xs text-gray-400 hover:text-red-600 font-medium">Delete</button>
          </form>`;
     return `<tr class="border-t border-gray-100 hover:bg-gray-50">
@@ -197,6 +201,26 @@ app.post("/sessions/:id/toggle-notify", async (c) => {
   await db.update(chessSessions)
     .set({ notify: session[0].notify ? 0 : 1 })
     .where(eq(chessSessions.id, Number(c.req.param("id"))));
+  return c.redirect("/");
+});
+
+app.post("/sessions/:id/start", async (c) => {
+  const db = getDb(c.env.DB);
+  const id = Number(c.req.param("id"));
+  const rows = await db.select().from(chessSessions).where(eq(chessSessions.id, id)).limit(1);
+  const s = rows[0];
+  if (!s || (s.status !== "stopped" && s.status !== "error")) return c.redirect("/");
+  // Silent resume: refresh the snapshot first so the next poll diffs against
+  // current state and doesn't fire catch-up notifications for missed rounds.
+  const fresh = await fetchPlayerData(s.server ?? "", s.tournamentId, s.playerSnr, s.federation ?? "IND", s.url);
+  if (!fresh) {
+    await writeLog(db, `Resume failed for session ${id} — could not fetch current data, staying ${s.status}`, "warn", "worker");
+    return c.redirect("/");
+  }
+  await db.update(chessSessions)
+    .set({ status: "running", data: JSON.stringify(fresh), updatedAt: sql`(datetime('now'))` })
+    .where(eq(chessSessions.id, id));
+  await writeLog(db, `Session ${id} resumed`, "info", "worker");
   return c.redirect("/");
 });
 

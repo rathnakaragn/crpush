@@ -6,6 +6,20 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Quiet hours now defer notifications instead of skipping polling: the cron
+  keeps polling overnight, saves notifications unsent, and the retry pass
+  delivers them on the first cycle after quiet hours end — no more morning
+  catch-up gap. Cron error alerts still send during quiet hours, but at low
+  (silent) priority.
+- Sessions are marked `error` after 3 consecutive fetch failures (new
+  `fail_count` column; migration: `ALTER TABLE chess_sessions ADD COLUMN
+  fail_count INTEGER DEFAULT 0`). A successful fetch or the Start button
+  resets the streak.
+- Old rows are pruned on each poll: worker logs after 30 days, sent
+  notifications after 90 days.
+
 ### Added
 
 - Start button to resume stopped/errored sessions. Resume is silent: the data

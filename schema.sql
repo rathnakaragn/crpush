@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS chess_sessions (
   federation TEXT DEFAULT 'IND',
   status TEXT DEFAULT 'running' CHECK (status IN ('running', 'stopped', 'completed', 'error')),
   notify INTEGER DEFAULT 1,
+  fail_count INTEGER DEFAULT 0,
   data TEXT DEFAULT '{}',
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))

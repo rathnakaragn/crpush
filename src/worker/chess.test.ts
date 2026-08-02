@@ -4,7 +4,7 @@ import type { ChessSession } from './chess';
 
 const makeSession = (overrides: Partial<ChessSession> = {}): ChessSession => ({
   id: 1, url: '', server: '', tournament_id: '', player_snr: '',
-  federation: 'IND', status: 'running', notify: 1,
+  federation: 'IND', status: 'running', notify: 1, fail_count: 0,
   data: '{}', created_at: '', updated_at: '', ...overrides,
 });
 

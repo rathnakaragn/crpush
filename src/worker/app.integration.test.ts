@@ -19,6 +19,12 @@ async function login(password = TEST_PASSWORD): Promise<string> {
   return match ? `session=${match[1]}` : "";
 }
 
+// SELF.scheduled exists at runtime but is missing from the installed
+// @cloudflare/vitest-pool-workers type definitions.
+const runCron = () =>
+  (SELF as unknown as { scheduled: (opts: { cron: string }) => Promise<unknown> })
+    .scheduled({ cron: "*/5 * * * *" });
+
 async function authed(path: string, init: RequestInit = {}): Promise<Response> {
   const cookie = await login();
   return SELF.fetch(`${BASE}${path}`, {
@@ -283,6 +289,58 @@ describe("POST /sessions/:id/delete", () => {
     expect(res.status).toBe(302);
     expect(res.headers.get("Location")).toBe("/");
   });
+});
+
+describe("scheduled (cron)", () => {
+  it("prunes worker logs older than 30 days and sent notifications older than 90 days", async () => {
+    await env.DB.prepare(
+      "INSERT INTO worker_logs (level, source, message, created_at) VALUES ('info', 'test', 'old-log', datetime('now', '-40 days'))"
+    ).run();
+    await env.DB.prepare(
+      "INSERT INTO worker_logs (level, source, message) VALUES ('info', 'test', 'fresh-log')"
+    ).run();
+    await env.DB.prepare(
+      "INSERT INTO chess_sessions (url, tournament_id, player_snr, server, federation, status) VALUES (?, 'tnr123456', '42', '', 'IND', 'completed')"
+    ).bind(VALID_SESSION_URL).run();
+    const { results } = await env.DB.prepare("SELECT id FROM chess_sessions").all<{ id: number }>();
+    const id = results[0].id;
+    await env.DB.prepare(
+      "INSERT INTO notifications (session_id, type, title, message, sent, round_number, created_at) VALUES (?, 'result', 'old', 'm', 1, 1, datetime('now', '-100 days'))"
+    ).bind(id).run();
+    await env.DB.prepare(
+      "INSERT INTO notifications (session_id, type, title, message, sent, round_number) VALUES (?, 'result', 'fresh', 'm', 1, 2)"
+    ).bind(id).run();
+
+    await runCron();
+
+    const oldLog = await env.DB.prepare("SELECT id FROM worker_logs WHERE message = 'old-log'").first();
+    expect(oldLog).toBeNull();
+    const freshLog = await env.DB.prepare("SELECT id FROM worker_logs WHERE message = 'fresh-log'").first();
+    expect(freshLog).not.toBeNull();
+    const oldNotif = await env.DB.prepare("SELECT id FROM notifications WHERE title = 'old'").first();
+    expect(oldNotif).toBeNull();
+    const freshNotif = await env.DB.prepare("SELECT id FROM notifications WHERE title = 'fresh'").first();
+    expect(freshNotif).not.toBeNull();
+  }, 15000);
+
+  it("marks a session as error after 3 consecutive fetch failures", async () => {
+    // Outbound fetches fail in the test environment, so every cron run is a
+    // fetch failure for the session.
+    await env.DB.prepare(
+      "INSERT INTO chess_sessions (url, tournament_id, player_snr, server, federation, status) VALUES (?, 'tnr123456', '42', '', 'IND', 'running')"
+    ).bind(VALID_SESSION_URL).run();
+    const { results } = await env.DB.prepare("SELECT id FROM chess_sessions").all<{ id: number }>();
+    const id = results[0].id;
+
+    for (let i = 0; i < 3; i++) {
+      await runCron();
+    }
+
+    const row = await env.DB.prepare("SELECT status, fail_count FROM chess_sessions WHERE id = ?").bind(id)
+      .first<{ status: string; fail_count: number }>();
+    expect(row?.status).toBe("error");
+    expect(row?.fail_count).toBe(3);
+  }, 30000);
 });
 
 // ── Notifications ─────────────────────────────────────────────────────────────

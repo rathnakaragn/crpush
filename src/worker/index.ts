@@ -218,7 +218,7 @@ app.post("/sessions/:id/start", async (c) => {
     return c.redirect("/");
   }
   await db.update(chessSessions)
-    .set({ status: "running", data: JSON.stringify(fresh), updatedAt: sql`(datetime('now'))` })
+    .set({ status: "running", data: JSON.stringify(fresh), failCount: 0, updatedAt: sql`(datetime('now'))` })
     .where(eq(chessSessions.id, id));
   await writeLog(db, `Session ${id} resumed`, "info", "worker");
   return c.redirect("/");
@@ -644,11 +644,6 @@ export default {
       ? hour >= nightStart || hour < nightEnd
       : hour >= nightStart && hour < nightEnd;
 
-    if (isNight) {
-      await writeLog(db, `Cron skipped — quiet hours (hour=${hour}, quiet=${nightStart}h–${nightEnd}h)`, "info", "cron");
-      return;
-    }
-
     const appToken = settingsMap["pushover_app_token"] || "";
     const userKey = settingsMap["pushover_user_key"] || "";
 
@@ -657,17 +652,18 @@ export default {
       return sendPushover(appToken, userKey, title, message, url, priorityForType(type, settingsMap));
     };
 
+    // Error alerts still go out during quiet hours, but silently (low priority)
     const alertFn = (title: string, message: string) => {
       if (!appToken || !userKey) return Promise.resolve(false);
-      return sendPushover(appToken, userKey, title, message);
+      return sendPushover(appToken, userKey, title, message, undefined, isNight ? -1 : 0);
     };
 
     const logFn = (msg: string, level: "info" | "warn" | "error" = "info", source = "cron") =>
       writeLog(db, msg, level, source);
 
     try {
-      const result = await checkForUpdates(db, sendFn, logFn);
-      await writeLog(db, `Cron done — ${result.sessions} session(s), ${result.notifications} notification(s)`, "info", "cron");
+      const result = await checkForUpdates(db, sendFn, logFn, { deliver: !isNight });
+      await writeLog(db, `Cron done${isNight ? ` (quiet hours ${nightStart}h–${nightEnd}h — notifications deferred)` : ""} — ${result.sessions} session(s), ${result.notifications} notification(s)`, "info", "cron");
       if (result.errors > 0) {
         await alertFn("OpenCRBot: cron errors", `${result.errors} tournament(s) failed to check. See logs for details.`);
       }

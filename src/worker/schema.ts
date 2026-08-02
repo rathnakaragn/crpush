@@ -10,6 +10,7 @@ export const chessSessions = sqliteTable("chess_sessions", {
   federation: text("federation").default("IND"),
   status: text("status", { enum: ["running", "stopped", "completed", "error"] }).default("running"),
   notify: integer("notify").default(1),
+  failCount: integer("fail_count").default(0),
   data: text("data").default("{}"),
   createdAt: text("created_at").default(sql`(datetime('now'))`),
   updatedAt: text("updated_at").default(sql`(datetime('now'))`),

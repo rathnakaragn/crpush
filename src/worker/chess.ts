@@ -1,6 +1,6 @@
 import { and, eq, sql } from "drizzle-orm";
 import type { AppDB } from "./drizzle";
-import { chessSessions, notifications } from "./schema";
+import { chessSessions, notifications, workerLogs } from "./schema";
 
 // ── HTML entity decoder ──────────────────────────────────────────────────────
 
@@ -82,6 +82,7 @@ export interface ChessSession {
   federation: string;
   status: string;
   notify: number;
+  fail_count: number;
   data: string;
   created_at: string;
   updated_at: string;
@@ -498,7 +499,32 @@ function formatNotification(n: Notification): { title: string; message: string }
   }
 }
 
-async function checkPlayerUpdate(db: AppDB, session: ChessSession): Promise<Notification[]> {
+const MAX_CONSECUTIVE_FAILURES = 3;
+
+async function recordFetchFailure(
+  db: AppDB,
+  session: ChessSession,
+  writeLog: (msg: string, level?: 'info' | 'warn' | 'error', source?: string) => Promise<void>,
+): Promise<void> {
+  const failCount = (session.fail_count ?? 0) + 1;
+  if (failCount >= MAX_CONSECUTIVE_FAILURES) {
+    await db.update(chessSessions)
+      .set({ status: "error", failCount, updatedAt: sql`(datetime('now'))` })
+      .where(eq(chessSessions.id, session.id));
+    await writeLog(`Session ${session.id} marked as error after ${failCount} consecutive fetch failures`, 'error', 'cron');
+  } else {
+    await db.update(chessSessions)
+      .set({ failCount })
+      .where(eq(chessSessions.id, session.id));
+    await writeLog(`Fetch failed for session ${session.id} (${failCount}/${MAX_CONSECUTIVE_FAILURES})`, 'warn', 'cron');
+  }
+}
+
+async function checkPlayerUpdate(
+  db: AppDB,
+  session: ChessSession,
+  writeLog: (msg: string, level?: 'info' | 'warn' | 'error', source?: string) => Promise<void>,
+): Promise<Notification[]> {
   const notifications: Notification[] = [];
   try {
     const oldData = parseSessionData(session);
@@ -506,6 +532,7 @@ async function checkPlayerUpdate(db: AppDB, session: ChessSession): Promise<Noti
     const newData = await fetchPlayerData(session.server, session.tournament_id, session.player_snr, session.federation, session.url);
     if (!newData) {
       console.warn(`[chess] Could not fetch player data for session ${session.id}`);
+      await recordFetchFailure(db, session, writeLog);
       return notifications;
     }
     // Check for results on existing matches and new matches
@@ -531,12 +558,13 @@ async function checkPlayerUpdate(db: AppDB, session: ChessSession): Promise<Noti
         .set({ status: "completed", updatedAt: sql`(datetime('now'))` })
         .where(eq(chessSessions.id, session.id));
     }
-    // Persist updated data
+    // Persist updated data; a successful fetch resets the failure streak
     await db.update(chessSessions)
-      .set({ data: JSON.stringify(newData), updatedAt: sql`(datetime('now'))` })
+      .set({ data: JSON.stringify(newData), failCount: 0, updatedAt: sql`(datetime('now'))` })
       .where(eq(chessSessions.id, session.id));
   } catch (err) {
     console.error(`[chess] Error checking session ${session.id}:`, err);
+    await recordFetchFailure(db, session, writeLog);
   }
   return notifications;
 }
@@ -552,25 +580,39 @@ export async function checkForUpdates(
   db: AppDB,
   sendNotification: (title: string, message: string, url: string, type: string) => Promise<boolean>,
   writeLog: (msg: string, level?: 'info' | 'warn' | 'error', source?: string) => Promise<void>,
+  opts: { deliver?: boolean } = {},
 ): Promise<PollResult> {
-  // Retry notifications that failed to send (within the last 24 hours)
-  const unsent = await db
-    .select({ id: notifications.id, type: notifications.type, title: notifications.title, message: notifications.message, url: chessSessions.url })
-    .from(notifications)
-    .innerJoin(chessSessions, eq(notifications.sessionId, chessSessions.id))
-    .where(and(
-      eq(notifications.sent, 0),
-      eq(chessSessions.notify, 1),
-      sql`${notifications.createdAt} > datetime('now', '-24 hours')`,
-    ));
+  // During quiet hours polling continues but delivery is deferred: notifications
+  // are saved unsent and the retry pass delivers them on the first cycle after.
+  const deliver = opts.deliver ?? true;
 
-  let retried = 0;
-  for (const n of unsent) {
-    const ok = await sendNotification(n.title, n.message, n.url, n.type);
-    if (ok) { await markNotificationSent(db, n.id); retried++; }
-  }
-  if (unsent.length > 0) {
-    await writeLog(`Retry: ${retried}/${unsent.length} unsent notification(s) delivered`, retried < unsent.length ? 'warn' : 'info', 'cron');
+  // Prune old rows so worker_logs / notifications don't grow unbounded
+  await db.delete(workerLogs).where(sql`${workerLogs.createdAt} < datetime('now', '-30 days')`);
+  await db.delete(notifications).where(and(
+    eq(notifications.sent, 1),
+    sql`${notifications.createdAt} < datetime('now', '-90 days')`,
+  ));
+
+  // Retry notifications that failed to send (within the last 24 hours)
+  if (deliver) {
+    const unsent = await db
+      .select({ id: notifications.id, type: notifications.type, title: notifications.title, message: notifications.message, url: chessSessions.url })
+      .from(notifications)
+      .innerJoin(chessSessions, eq(notifications.sessionId, chessSessions.id))
+      .where(and(
+        eq(notifications.sent, 0),
+        eq(chessSessions.notify, 1),
+        sql`${notifications.createdAt} > datetime('now', '-24 hours')`,
+      ));
+
+    let retried = 0;
+    for (const n of unsent) {
+      const ok = await sendNotification(n.title, n.message, n.url, n.type);
+      if (ok) { await markNotificationSent(db, n.id); retried++; }
+    }
+    if (unsent.length > 0) {
+      await writeLog(`Retry: ${retried}/${unsent.length} unsent notification(s) delivered`, retried < unsent.length ? 'warn' : 'info', 'cron');
+    }
   }
 
   const rows = await db.select().from(chessSessions).where(eq(chessSessions.status, "running"));
@@ -584,6 +626,7 @@ export async function checkForUpdates(
     federation: r.federation ?? "IND",
     status: r.status ?? "running",
     notify: r.notify ?? 1,
+    fail_count: r.failCount ?? 0,
     data: r.data ?? "{}",
     created_at: r.createdAt ?? "",
     updated_at: r.updatedAt ?? "",
@@ -631,7 +674,7 @@ export async function checkForUpdates(
 
         if (needsFetch) {
           await new Promise(r => setTimeout(r, REQUEST_DELAY_MS));
-          const notifications = await checkPlayerUpdate(db, session);
+          const notifications = await checkPlayerUpdate(db, session, writeLog);
 
           for (const notification of notifications) {
             const { title, message } = formatNotification(notification);
@@ -644,9 +687,11 @@ export async function checkForUpdates(
             notifCount++;
             await writeLog(`${notification.type} notification: ${title}`, 'info', 'cron');
 
-            if (notification.session.notify === 1) {
+            if (deliver && notification.session.notify === 1) {
               const sent = await sendNotification(title, message, notification.session.url, notification.type);
               if (sent) await markNotificationSent(db, notifId);
+            } else if (!deliver) {
+              await writeLog(`Deferred (quiet hours): ${title}`, 'info', 'cron');
             }
           }
 

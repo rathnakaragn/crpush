@@ -1,4 +1,6 @@
 import { parseSessionData, calculatePoints, type ChessSession } from "./chess";
+import { STYLES } from "./styles";
+import pkg from "../../package.json";
 
 // ── HTML helpers ──────────────────────────────────────────────────────────────
 
@@ -39,7 +41,7 @@ export function layout(title: string, content: string, activePage = ""): string 
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${escapeHtml(title)} — OpenCRBot</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <style>${STYLES}</style>
 </head>
 <body class="bg-gray-50 min-h-screen">
   <nav class="bg-white border-b border-gray-200 px-6 py-3 flex items-center gap-6 sticky top-0 z-10">
@@ -55,6 +57,7 @@ export function layout(title: string, content: string, activePage = ""): string 
     </div>
   </nav>
   <main class="max-w-5xl mx-auto px-6 py-8">${content}</main>
+  <footer class="max-w-5xl mx-auto px-6 pb-6 text-xs text-gray-400">OpenCRBot v${pkg.version}</footer>
 </body>
 </html>`;
 }

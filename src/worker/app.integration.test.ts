@@ -49,6 +49,16 @@ describe("Auth middleware", () => {
     expect(res.headers.get("Location")).toBe("/login");
   });
 
+  it("serves self-contained CSS (no CDN) and shows the version footer", async () => {
+    const loginBody = await (await SELF.fetch(`${BASE}/login`)).text();
+    expect(loginBody).toContain("<style>");
+    expect(loginBody).not.toContain("cdn.tailwindcss.com");
+
+    const dashBody = await (await authed("/")).text();
+    expect(dashBody).not.toContain("cdn.tailwindcss.com");
+    expect(dashBody).toMatch(/OpenCRBot v\d+\.\d+\.\d+/);
+  });
+
   it("allows unauthenticated GET /login through", async () => {
     const res = await SELF.fetch(`${BASE}/login`, { redirect: "manual" });
     expect(res.status).toBe(200);

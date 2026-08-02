@@ -11,6 +11,7 @@ import {
 } from "./chess";
 import { sendPushover, priorityForType } from "./pushover";
 import { makeSessionCookie, verifySessionCookie } from "./auth";
+import { STYLES } from "./styles";
 import {
   getSetting,
   writeLog,
@@ -46,7 +47,7 @@ app.get("/login", (c) => {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Login — crpush</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <style>${STYLES}</style>
 </head>
 <body class="bg-gray-50 min-h-screen flex items-center justify-center">
   <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-8 w-full max-w-sm">
@@ -69,7 +70,11 @@ app.get("/login", (c) => {
 app.post("/login", async (c) => {
   const body = await c.req.parseBody();
   const password = String(body.password || "");
-  if (password !== c.env.AUTH_PASSWORD) return c.redirect("/login?error=1");
+  if (password !== c.env.AUTH_PASSWORD) {
+    // Cheap brute-force damper on an internet-exposed password form
+    await new Promise(r => setTimeout(r, 1000));
+    return c.redirect("/login?error=1");
+  }
   const cookie = await makeSessionCookie(c.env.AUTH_PASSWORD);
   c.header("Set-Cookie", `session=${encodeURIComponent(cookie)}; HttpOnly; Secure; SameSite=Lax; Max-Age=604800; Path=/`);
   return c.redirect("/");
@@ -280,6 +285,17 @@ app.get("/session/:id", async (c) => {
         <div class="flex items-center gap-2">
           ${statusBadge(s.status as string)}
           <a href="${escapeHtml(s.url as string)}" target="_blank" rel="noopener" class="text-xs text-blue-600 hover:underline">chess-results.com ↗</a>
+          ${s.status === "running"
+            ? `<form method="POST" action="/sessions/${s.id}/stop" class="inline" onsubmit="return confirm('Stop monitoring this player?')">
+                 <button type="submit" class="text-xs text-red-600 hover:text-red-800 font-medium">Stop</button>
+               </form>`
+            : `${s.status === "stopped" || s.status === "error"
+                 ? `<form method="POST" action="/sessions/${s.id}/start" class="inline">
+                      <button type="submit" class="text-xs text-green-600 hover:text-green-800 font-medium">Start</button>
+                    </form>`
+                 : ""}<form method="POST" action="/sessions/${s.id}/delete" class="inline" onsubmit="return confirm('Delete this session and its notifications? This cannot be undone.')">
+                 <button type="submit" class="text-xs text-gray-400 hover:text-red-600 font-medium">Delete</button>
+               </form>`}
         </div>
       </div>
       <div class="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-4">

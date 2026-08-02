@@ -6,6 +6,19 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+
+- Stop/Start/Delete actions on the session detail page (previously dashboard
+  only).
+- App version in the dashboard footer (from `package.json`).
+
+### Changed
+
+- Tailwind is now compiled ahead of time and served inline (`just css` →
+  `src/worker/styles.ts`) instead of loaded from the CDN — the dashboard no
+  longer depends on any external host.
+- Failed logins are delayed by 1 second as a brute-force damper.
+
 ## [1.3.2] - 2026-08-02
 
 ### Fixed

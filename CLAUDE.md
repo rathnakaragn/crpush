@@ -55,6 +55,7 @@ Requires [`just`](https://github.com/casey/just) (`brew install just`).
 
 ```bash
 just ci                   # pre-push gate: typecheck + unit tests
+just css                  # regenerate compiled Tailwind (src/worker/styles.ts)
 just dev                  # wrangler dev (local Worker)
 just deploy               # ci + integration tests, then wrangler deploy
 just test-integration     # workers-pool integration tests
@@ -68,7 +69,7 @@ npm run test:watch        # vitest watch
 - **Database:** Cloudflare D1 (SQLite at edge), binding name `DB`
 - **Notifications:** Pushover API (`src/worker/pushover.ts`)
 - **Chess scraping:** chess-results.com HTML scraper (`src/worker/chess.ts`)
-- **Dashboard:** Server-rendered HTML, Tailwind CSS from CDN (no postcss, no config file)
+- **Dashboard:** Server-rendered HTML, compiled Tailwind served inline (`just css` regenerates `src/worker/styles.ts` after UI class changes — no CDN, no postcss, no config file)
 - **Auth:** HMAC-SHA256 signed cookies, 7-day expiry
 - **Tests:** Vitest, node environment, pure function tests only
 

@@ -550,12 +550,12 @@ export interface PollResult {
 
 export async function checkForUpdates(
   db: AppDB,
-  sendNotification: (title: string, message: string, url: string) => Promise<boolean>,
+  sendNotification: (title: string, message: string, url: string, type: string) => Promise<boolean>,
   writeLog: (msg: string, level?: 'info' | 'warn' | 'error', source?: string) => Promise<void>,
 ): Promise<PollResult> {
   // Retry notifications that failed to send (within the last 24 hours)
   const unsent = await db
-    .select({ id: notifications.id, title: notifications.title, message: notifications.message, url: chessSessions.url })
+    .select({ id: notifications.id, type: notifications.type, title: notifications.title, message: notifications.message, url: chessSessions.url })
     .from(notifications)
     .innerJoin(chessSessions, eq(notifications.sessionId, chessSessions.id))
     .where(and(
@@ -566,7 +566,7 @@ export async function checkForUpdates(
 
   let retried = 0;
   for (const n of unsent) {
-    const ok = await sendNotification(n.title, n.message, n.url);
+    const ok = await sendNotification(n.title, n.message, n.url, n.type);
     if (ok) { await markNotificationSent(db, n.id); retried++; }
   }
   if (unsent.length > 0) {
@@ -645,7 +645,7 @@ export async function checkForUpdates(
             await writeLog(`${notification.type} notification: ${title}`, 'info', 'cron');
 
             if (notification.session.notify === 1) {
-              const sent = await sendNotification(title, message, notification.session.url);
+              const sent = await sendNotification(title, message, notification.session.url, notification.type);
               if (sent) await markNotificationSent(db, notifId);
             }
           }

@@ -299,6 +299,14 @@ describe("GET /settings", () => {
     expect(body).toContain("Pushover");
     expect(body).toContain("Quiet Hours");
   });
+
+  it("renders priority selects with defaults (pairing high, result normal, completion low)", async () => {
+    const body = await (await authed("/settings")).text();
+    expect(body).toContain("Notification Priority");
+    expect(body).toMatch(/name="priority_pairing"[\s\S]*?<option value="1" selected/);
+    expect(body).toMatch(/name="priority_result"[\s\S]*?<option value="0" selected/);
+    expect(body).toMatch(/name="priority_completion"[\s\S]*?<option value="-1" selected/);
+  });
 });
 
 describe("POST /settings", () => {
@@ -313,6 +321,24 @@ describe("POST /settings", () => {
 
     const row = await env.DB.prepare("SELECT value FROM settings WHERE key = 'pushover_app_token'").first<{ value: string }>();
     expect(row?.value).toBe("mytoken");
+  });
+
+  it("saves per-type priority settings", async () => {
+    const res = await authed("/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "priority_pairing=0&priority_result=-1&priority_completion=-2",
+    });
+    expect(res.status).toBe(302);
+
+    const { results } = await env.DB.prepare(
+      "SELECT key, value FROM settings WHERE key LIKE 'priority_%' ORDER BY key"
+    ).all<{ key: string; value: string }>();
+    expect(results).toEqual([
+      { key: "priority_completion", value: "-2" },
+      { key: "priority_pairing", value: "0" },
+      { key: "priority_result", value: "-1" },
+    ]);
   });
 });
 

@@ -8,6 +8,9 @@ All notable changes to this project are documented here. Format follows
 
 ### Added
 
+- Per-type Pushover notification priorities, configurable on the Settings page:
+  pairing defaults to high (bypasses Pushover quiet hours), result to normal,
+  completion to low. Clamped to -2..1 — emergency priority is unsupported.
 - Delete button for non-running sessions (with confirm): removes the session
   and its notifications. The route refuses to delete running sessions
   server-side.

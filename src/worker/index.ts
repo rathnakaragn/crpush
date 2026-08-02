@@ -9,7 +9,7 @@ import {
   calculateTotalRatingChange,
   parseSessionData, type ChessSession,
 } from "./chess";
-import { sendPushover } from "./pushover";
+import { sendPushover, priorityForType } from "./pushover";
 import { makeSessionCookie, verifySessionCookie } from "./auth";
 import {
   getSetting,
@@ -440,7 +440,20 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   timezone: "Asia/Kolkata",
   night_start_hour: "23",
   night_end_hour: "6",
+  priority_pairing: "1",
+  priority_result: "0",
+  priority_completion: "-1",
 };
+
+const PRIORITY_KEYS = ["priority_pairing", "priority_result", "priority_completion"];
+
+function prioritySelect(name: string, current: string): string {
+  const options = [["1", "High"], ["0", "Normal"], ["-1", "Low"], ["-2", "Lowest"]]
+    .map(([v, label]) => `<option value="${v}"${v === current ? " selected" : ""}>${label}</option>`)
+    .join("");
+  return `<select name="${name}"
+    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">${options}</select>`;
+}
 
 app.get("/settings", async (c) => {
   const db = getDb(c.env.DB);
@@ -477,6 +490,25 @@ app.get("/settings", async (c) => {
               placeholder="uQiRzpo4DXghDmr9QzzfQu"
               class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500">
             <p class="text-xs text-gray-400 mt-1">From your Pushover account dashboard</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+        <h2 class="text-base font-semibold text-gray-900 mb-1">Notification Priority</h2>
+        <p class="text-sm text-gray-500 mb-4">Pushover priority per notification type. High bypasses your Pushover quiet hours; Low/Lowest arrive silently.</p>
+        <div class="grid grid-cols-3 gap-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Pairing</label>
+            ${prioritySelect("priority_pairing", s.priority_pairing)}
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Result</label>
+            ${prioritySelect("priority_result", s.priority_result)}
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Completion</label>
+            ${prioritySelect("priority_completion", s.priority_completion)}
           </div>
         </div>
       </div>
@@ -520,7 +552,7 @@ app.get("/settings", async (c) => {
 app.post("/settings", async (c) => {
   const db = getDb(c.env.DB);
   const body = await c.req.parseBody();
-  const allowed = ["pushover_app_token", "pushover_user_key", "timezone", "night_start_hour", "night_end_hour"];
+  const allowed = ["pushover_app_token", "pushover_user_key", "timezone", "night_start_hour", "night_end_hour", ...PRIORITY_KEYS];
   for (const k of allowed) {
     if (body[k] !== undefined) {
       await db.insert(settings).values({ key: k, value: String(body[k]) }).onConflictDoUpdate({
@@ -547,10 +579,12 @@ app.post("/poll", async (c) => {
   const db = getDb(c.env.DB);
   const appToken = await getSetting(db, "pushover_app_token");
   const userKey = await getSetting(db, "pushover_user_key");
+  const prioRows = await db.select().from(settings).where(inArray(settings.key, PRIORITY_KEYS));
+  const prioMap = Object.fromEntries(prioRows.map(r => [r.key, r.value]));
 
-  const sendFn = async (title: string, message: string, url: string) => {
+  const sendFn = async (title: string, message: string, url: string, type: string) => {
     if (!appToken || !userKey) return false;
-    return sendPushover(appToken, userKey, title, message, url);
+    return sendPushover(appToken, userKey, title, message, url, priorityForType(type, prioMap));
   };
 
   const logFn = (msg: string, level: "info" | "warn" | "error" = "info", source = "poll") =>
@@ -572,7 +606,7 @@ export default {
   async scheduled(_event: ScheduledEvent, env: Env, _ctx: ExecutionContext) {
     const db = getDb(env.DB);
     const cronSettings = await db.select().from(settings)
-      .where(inArray(settings.key, ["timezone", "night_start_hour", "night_end_hour", "pushover_app_token", "pushover_user_key"]));
+      .where(inArray(settings.key, ["timezone", "night_start_hour", "night_end_hour", "pushover_app_token", "pushover_user_key", ...PRIORITY_KEYS]));
     const settingsMap = Object.fromEntries(cronSettings.map(r => [r.key, r.value]));
     const timezone = settingsMap["timezone"] || "Asia/Kolkata";
     const nightStart = parseInt(settingsMap["night_start_hour"] || "23", 10);
@@ -594,9 +628,9 @@ export default {
     const appToken = settingsMap["pushover_app_token"] || "";
     const userKey = settingsMap["pushover_user_key"] || "";
 
-    const sendFn = async (title: string, message: string, url: string) => {
+    const sendFn = async (title: string, message: string, url: string, type: string) => {
       if (!appToken || !userKey) return false;
-      return sendPushover(appToken, userKey, title, message, url);
+      return sendPushover(appToken, userKey, title, message, url, priorityForType(type, settingsMap));
     };
 
     const alertFn = (title: string, message: string) => {

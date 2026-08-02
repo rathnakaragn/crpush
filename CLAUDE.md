@@ -14,17 +14,51 @@ Commit directly to `main`. No branches, no PRs.
 
 1. **Always on `main`** — never create a branch, commit directly to `main`
 2. **Push often** — `git push` after every commit or two
-3. **Deploy when a feature is complete**
-   - `npm run deploy` when a feature is done and working
+3. **Tag at milestones** — `git tag` when a meaningful set of features is
+   complete (not every commit), and keep `version` in `package.json` in step
+   with the latest tag. Deploy (`just deploy`) when a feature is done and working.
+
+### Tagging (semver)
+
+- `feat:` work → bump **minor** (v1.2.0 → v1.3.0)
+- `fix:`-only work → bump **patch** (v1.2.0 → v1.2.1)
+
+```bash
+git tag v1.3.0                   # then: git push origin v1.3.0
+git describe --tags --abbrev=0   # latest tag
+```
+
+Update `CHANGELOG.md` (Keep a Changelog format) as part of the work: notable
+changes go under `[Unreleased]`, which becomes the version section when you tag.
+
+### CI & tests — how the loop fits together
+
+**`just ci` is the pre-push gate** — nothing reaches `main` without it green:
+
+```
+edit → `just ci` (green) → git commit (feat:/fix:) → git push → [milestone] git tag
+```
+
+- **typecheck**: `tsc --noEmit`, failing only on errors outside `node_modules`
+  (the vitest/workers-types lib conflicts there are known noise)
+- **test**: vitest unit suite (fast, pure functions + workers pool unit tests)
+- Integration tests (`just test-integration`) are slower and run as part of
+  `just deploy`, not `just ci`
+
+There is **no remote / GitHub Actions CI** — deliberate: solo project,
+everything runs locally in seconds. The discipline: **don't push without
+`just ci` green**, tag only at milestones.
+
+Requires [`just`](https://github.com/casey/just) (`brew install just`).
 
 ## Commands
 
 ```bash
-npm run dev        # wrangler dev (local Worker)
-npm run deploy     # wrangler deploy (to Cloudflare)
-npm test           # vitest run
-npm run test:watch # vitest watch
-npx tsc --noEmit   # type-check (ignore errors in node_modules)
+just ci                   # pre-push gate: typecheck + unit tests
+just dev                  # wrangler dev (local Worker)
+just deploy               # ci + integration tests, then wrangler deploy
+just test-integration     # workers-pool integration tests
+npm run test:watch        # vitest watch
 ```
 
 ## Stack

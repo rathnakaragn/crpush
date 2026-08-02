@@ -6,6 +6,14 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- CLAUDE.md described auth that no longer exists (admin/admin defaults,
+  `dashboard_user`/`dashboard_password`/`session_cookie_secret` settings keys);
+  corrected to the `AUTH_PASSWORD` secret and the five real settings keys.
+- README updated to the `just` workflow (deploy step and Commands section);
+  `.DS_Store` gitignored.
+
 ## [1.2.7] - 2026-08-02
 
 ### Fixed

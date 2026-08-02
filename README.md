@@ -47,7 +47,7 @@ wrangler d1 execute crpush --remote --file=schema.sql
 ### 4. Deploy
 
 ```bash
-npm run deploy
+just deploy   # runs typecheck + unit + integration tests, then wrangler deploy
 ```
 
 Your app is live at `https://crpush.<your-subdomain>.workers.dev`.
@@ -73,13 +73,14 @@ Log in with your `AUTH_PASSWORD` (set via `wrangler secret put AUTH_PASSWORD`).
 
 ## Commands
 
+Recipes run via [`just`](https://github.com/casey/just) (`brew install just`):
+
 ```bash
-npm run dev              # wrangler dev (local Worker)
-npx wrangler@4.53.0 deploy  # deploy to Cloudflare (requires Node 22+ for wrangler in devDeps)
-npm test                 # unit tests (vitest, node env)
-npm run test:integration # integration tests (vitest, Workers env via Miniflare)
+just ci                  # pre-push gate: typecheck + unit tests
+just dev                 # wrangler dev (local Worker)
+just deploy              # ci + integration tests, then wrangler deploy
+just test-integration    # integration tests (vitest, Workers env via Miniflare)
 npm run test:watch       # unit tests in watch mode
-npx tsc --noEmit         # type-check
 ```
 
 ## License

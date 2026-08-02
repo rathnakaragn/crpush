@@ -95,9 +95,9 @@ wrangler.json   — Worker config: D1 binding + cron trigger (* * * * *)
 
 Tables: `chess_sessions`, `notifications`, `settings`, `worker_logs`
 
-Key settings keys: `pushover_app_token`, `pushover_user_key`, `dashboard_user`, `dashboard_password`, `timezone`, `night_start_hour`, `night_end_hour`, `session_cookie_secret`
+Key settings keys: `pushover_app_token`, `pushover_user_key`, `timezone`, `night_start_hour`, `night_end_hour`
 
-Default credentials: `admin` / `admin` (change on first login via Settings page)
+Login uses the `AUTH_PASSWORD` Worker secret (`wrangler secret put AUTH_PASSWORD`) — single user, no credentials in the database. The session cookie is HMAC-signed with the same secret.
 
 ## Deployment
 

@@ -4,3 +4,4 @@ dist/
 *.env
 .dev.vars
 docs/superpowers/
+.DS_Store

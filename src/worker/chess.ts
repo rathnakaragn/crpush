@@ -202,7 +202,13 @@ function parseStandingsTable(html: string): TournamentStanding[] {
     if (/^(GM|IM|FM|CM|WGM|WIM|WFM|WCM|AFM|ACM)$/i.test(cellTexts[3])) title = cellTexts[3].toUpperCase();
     let ratingIdx = -1;
     for (let i = 5; i < cellTexts.length; i++) {
-      if (/^\d{3,4}$/.test(cellTexts[i])) { rating = parseInt(cellTexts[i]); ratingIdx = i; break; }
+      // Rating cell is either a real rating (3-4 digits) or exactly "0" for
+      // unrated players — small numbers like points/tiebreaks must not match,
+      // and the unrated "0" must still anchor the points search that follows.
+      if (/^\d{1,4}$/.test(cellTexts[i])) {
+        const val = parseInt(cellTexts[i]);
+        if (val === 0 || val >= 100) { rating = val; ratingIdx = i; break; }
+      }
     }
     let pointsIdx = -1;
     if (ratingIdx >= 0) {

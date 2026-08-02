@@ -67,4 +67,13 @@ describe('parseTournamentHtml (real fixture)', () => {
     expect(second.rating).toBe(1410);
     expect(second.points).toBe(5);
   });
+
+  it('parses points for unrated players (rating cell is "0")', () => {
+    const leader = info.standings[0];
+    expect(leader.rank).toBe(1);
+    expect(leader.name).toBe('Bhevin, Saarang');
+    expect(leader.rating).toBe(0);
+    expect(leader.points).toBe(5);
+    expect(leader.tiebreaks).toEqual([14, 16, 16]);
+  });
 });

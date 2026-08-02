@@ -6,6 +6,12 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Standings parser now reads points and tiebreaks for unrated players: the
+  rating cell holds `0` for them, which previously failed the rating match
+  and skipped the points search entirely (row parsed as 0 points).
+
 ## [1.3.1] - 2026-08-02
 
 ### Fixed

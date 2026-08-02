@@ -6,6 +6,8 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-08-02
+
 ### Added
 
 - Stop/Start/Delete actions on the session detail page (previously dashboard
@@ -170,7 +172,8 @@ Initial release.
 - HTML escaped in all template interpolations (XSS prevention).
 - Dashboard password hashed with PBKDF2.
 
-[Unreleased]: https://github.com/rathnakaragn/crpush/compare/v1.3.2...HEAD
+[Unreleased]: https://github.com/rathnakaragn/crpush/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/rathnakaragn/crpush/compare/v1.3.2...v1.4.0
 [1.3.2]: https://github.com/rathnakaragn/crpush/compare/v1.3.1...v1.3.2
 [1.3.1]: https://github.com/rathnakaragn/crpush/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/rathnakaragn/crpush/compare/v1.2.8...v1.3.0

@@ -1,6 +1,6 @@
 # Product Requirements Document — crpush
 
-**Version:** 1.2.7  
+**Version:** 1.2.8  
 **Date:** 2026-06-12  
 **Owner:** rathnakaragn
 

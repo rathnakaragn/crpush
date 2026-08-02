@@ -6,6 +6,8 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.2.8] - 2026-08-02
+
 ### Fixed
 
 - CLAUDE.md described auth that no longer exists (admin/admin defaults,
@@ -109,7 +111,8 @@ Initial release.
 - HTML escaped in all template interpolations (XSS prevention).
 - Dashboard password hashed with PBKDF2.
 
-[Unreleased]: https://github.com/rathnakaragn/crpush/compare/v1.2.7...HEAD
+[Unreleased]: https://github.com/rathnakaragn/crpush/compare/v1.2.8...HEAD
+[1.2.8]: https://github.com/rathnakaragn/crpush/compare/v1.2.7...v1.2.8
 [1.2.7]: https://github.com/rathnakaragn/crpush/compare/v1.2.6...v1.2.7
 [1.2.6]: https://github.com/rathnakaragn/crpush/compare/v1.2.5...v1.2.6
 [1.2.5]: https://github.com/rathnakaragn/crpush/compare/v1.2.4...v1.2.5

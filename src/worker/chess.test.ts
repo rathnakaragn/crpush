@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { calculatePoints, calculateTotalRatingChange, parseSessionData, shouldRunCron } from './chess';
+import { calculatePoints, calculateTotalRatingChange, parseSessionData, shouldRunCron, isRateLimitedHtml } from './chess';
 import type { ChessSession } from './chess';
 
 const makeSession = (overrides: Partial<ChessSession> = {}): ChessSession => ({
@@ -134,5 +134,16 @@ describe('shouldRunCron', () => {
   it('falls back to every 5th minute during quiet hours even with active sessions', () => {
     expect(shouldRunCron(2, true, 10)).toBe(true);
     expect(shouldRunCron(2, true, 11)).toBe(false);
+  });
+});
+
+describe('isRateLimitedHtml', () => {
+  it('detects the chess-results daily-limit page', () => {
+    expect(isRateLimitedHtml('<html>You have exceeded the daily limit of downloads</html>')).toBe(true);
+  });
+
+  it('does not flag normal tournament pages', () => {
+    expect(isRateLimitedHtml('<html><h2>Some Open 2026</h2>daily pairings</html>')).toBe(false);
+    expect(isRateLimitedHtml('')).toBe(false);
   });
 });

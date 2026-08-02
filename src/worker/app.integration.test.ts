@@ -361,6 +361,56 @@ describe("scheduled (cron)", () => {
   }, 30000);
 });
 
+describe("poll cycle guards", () => {
+  async function insertRunningSession(): Promise<number> {
+    await env.DB.prepare("INSERT INTO settings (key, value) VALUES ('night_start_hour', '0'), ('night_end_hour', '0')").run();
+    await env.DB.prepare(
+      "INSERT INTO chess_sessions (url, tournament_id, player_snr, server, federation, status) VALUES (?, 'tnr123456', '42', '', 'IND', 'running')"
+    ).bind(VALID_SESSION_URL).run();
+    const { results } = await env.DB.prepare("SELECT id FROM chess_sessions").all<{ id: number }>();
+    return results[0].id;
+  }
+  const failCount = (id: number) =>
+    env.DB.prepare("SELECT fail_count FROM chess_sessions WHERE id = ?").bind(id)
+      .first<{ fail_count: number }>().then(r => r?.fail_count);
+
+  it("skips the cycle during a rate-limit backoff", async () => {
+    const id = await insertRunningSession();
+    const until = new Date(Date.now() + 10 * 60_000).toISOString();
+    await env.DB.prepare("INSERT INTO settings (key, value) VALUES ('rate_limited_until', ?)").bind(until).run();
+
+    await runCron();
+    expect(await failCount(id)).toBe(0);
+  }, 15000);
+
+  it("skips the cycle when another poll started less than 50s ago", async () => {
+    const id = await insertRunningSession();
+    await env.DB.prepare("INSERT INTO settings (key, value) VALUES ('cycle_started_at', ?)")
+      .bind(new Date().toISOString()).run();
+
+    await runCron();
+    expect(await failCount(id)).toBe(0);
+  }, 15000);
+
+  it("ignores a stale overlap guard from a crashed cycle", async () => {
+    const id = await insertRunningSession();
+    await env.DB.prepare("INSERT INTO settings (key, value) VALUES ('cycle_started_at', ?)")
+      .bind(new Date(Date.now() - 2 * 60_000).toISOString()).run();
+
+    await runCron();
+    expect(await failCount(id)).toBe(1);
+  }, 15000);
+
+  it("clears an expired rate-limit backoff and polls again", async () => {
+    const id = await insertRunningSession();
+    await env.DB.prepare("INSERT INTO settings (key, value) VALUES ('rate_limited_until', ?)")
+      .bind(new Date(Date.now() - 60_000).toISOString()).run();
+
+    await runCron();
+    expect(await failCount(id)).toBe(1);
+  }, 15000);
+});
+
 // ── Notifications ─────────────────────────────────────────────────────────────
 
 describe("GET /notifications", () => {

@@ -182,7 +182,7 @@ app.post("/sessions", async (c) => {
   const existing = await db.select({ id: chessSessions.id }).from(chessSessions)
     .where(and(eq(chessSessions.url, url), eq(chessSessions.status, "running"))).limit(1);
   if (existing.length > 0) return c.redirect("/");
-  const initialData = await fetchPlayerData(parsed.server, parsed.tournament_id, parsed.player_snr, parsed.federation, url);
+  const initialData = await fetchPlayerData(parsed.server, parsed.tournament_id, parsed.player_snr, parsed.federation, url).catch(() => null);
   await db.insert(chessSessions).values({
     url, tournamentId: parsed.tournament_id, playerSnr: parsed.player_snr,
     server: parsed.server, federation: parsed.federation,
@@ -218,7 +218,7 @@ app.post("/sessions/:id/start", async (c) => {
   if (!s || (s.status !== "stopped" && s.status !== "error")) return c.redirect("/");
   // Silent resume: refresh the snapshot first so the next poll diffs against
   // current state and doesn't fire catch-up notifications for missed rounds.
-  const fresh = await fetchPlayerData(s.server ?? "", s.tournamentId, s.playerSnr, s.federation ?? "IND", s.url);
+  const fresh = await fetchPlayerData(s.server ?? "", s.tournamentId, s.playerSnr, s.federation ?? "IND", s.url).catch(() => null);
   if (!fresh) {
     await writeLog(db, `Resume failed for session ${id} — could not fetch current data, staying ${s.status}`, "warn", "worker");
     return c.redirect("/");
@@ -634,7 +634,11 @@ app.post("/poll", async (c) => {
   await writeLog(db, "Manual check triggered", "info", "poll");
   c.executionCtx.waitUntil(
     checkForUpdates(db, sendFn, logFn)
-      .then(result => writeLog(db, `Manual check done — ${result.sessions} session(s), ${result.notifications} notification(s)${result.errors > 0 ? `, ${result.errors} error(s)` : ""}`, result.errors > 0 ? "warn" : "info", "poll"))
+      .then(result => writeLog(db,
+        result.rateLimited ? "Manual check aborted — rate limited by chess-results.com, polling paused 30 min"
+          : result.skipped ? "Manual check skipped — rate-limit backoff or another poll cycle is running"
+          : `Manual check done — ${result.sessions} session(s), ${result.notifications} notification(s)${result.errors > 0 ? `, ${result.errors} error(s)` : ""}`,
+        result.errors > 0 || result.rateLimited ? "warn" : "info", "poll"))
       .catch(err => writeLog(db, `Manual check crashed: ${err}`, "error", "poll"))
   );
   return c.redirect("/");
@@ -685,6 +689,11 @@ export default {
 
     try {
       const result = await checkForUpdates(db, sendFn, logFn, { deliver: !isNight });
+      if (result.rateLimited) {
+        await alertFn("OpenCRBot: rate limited", "chess-results.com daily limit hit — polling paused for 30 minutes.");
+        return;
+      }
+      if (result.skipped) return; // backoff or overlap guard — no log noise
       await writeLog(db, `Cron done${isNight ? ` (quiet hours ${nightStart}h–${nightEnd}h — notifications deferred)` : ""} — ${result.sessions} session(s), ${result.notifications} notification(s)`, "info", "cron");
       if (result.errors > 0) {
         await alertFn("OpenCRBot: cron errors", `${result.errors} tournament(s) failed to check. See logs for details.`);

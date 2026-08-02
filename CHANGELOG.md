@@ -6,6 +6,18 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Rate-limit handling: chess-results.com's daily-limit page now aborts the
+  cycle, pauses all polling for 30 minutes, and sends one alert — instead of
+  counting as per-session fetch failures (which, at 1-minute cadence, flipped
+  every running session to `error` within 3 minutes).
+- Overlap guard: a poll cycle started less than 50s ago blocks the next one,
+  preventing concurrent retry passes from double-sending notifications; a
+  crashed cycle's stale guard expires on its own.
+- Outbound chess-results.com fetches time out after 10s instead of hanging
+  the cycle.
+
 ## [1.5.0] - 2026-08-02
 
 ### Changed

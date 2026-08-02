@@ -1,6 +1,6 @@
 import { and, eq, sql } from "drizzle-orm";
 import type { AppDB } from "./drizzle";
-import { chessSessions, notifications, workerLogs } from "./schema";
+import { chessSessions, notifications, settings, workerLogs } from "./schema";
 
 // ── HTML entity decoder ──────────────────────────────────────────────────────
 
@@ -248,16 +248,29 @@ function parseStandingsTable(html: string): TournamentStanding[] {
   return standings;
 }
 
+const FETCH_TIMEOUT_MS = 10_000;
+
+// Thrown when chess-results.com serves its daily-limit page. Propagates up to
+// checkForUpdates, which aborts the cycle and sets a polling backoff — it must
+// never be counted as a per-session fetch failure.
+export class RateLimitError extends Error {}
+
+export function isRateLimitedHtml(html: string): boolean {
+  return html.includes('exceeded') && html.includes('daily limit');
+}
+
 export async function fetchTournamentData(server: string, tournamentId: string): Promise<TournamentInfo | null> {
   try {
     const [detailsRes, standingsRes] = await Promise.all([
-      fetch(buildTournamentDetailsUrl(server, tournamentId)),
-      fetch(buildTournamentUrl(server, tournamentId)),
+      fetch(buildTournamentDetailsUrl(server, tournamentId), { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) }),
+      fetch(buildTournamentUrl(server, tournamentId), { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) }),
     ]);
     const detailsHtml = await detailsRes.text();
     const standingsHtml = await standingsRes.text();
+    if (isRateLimitedHtml(standingsHtml) || isRateLimitedHtml(detailsHtml)) throw new RateLimitError('tournament fetch');
     return parseTournamentHtml(standingsHtml, detailsHtml);
   } catch (err) {
+    if (err instanceof RateLimitError) throw err;
     console.error('Error fetching tournament data:', err);
     return null;
   }
@@ -349,14 +362,12 @@ export async function fetchPlayerData(server: string, tournamentId: string, play
   try {
     // Use the original URL if provided (preserves extra params like SNode for multi-section tournaments)
     const url = overrideUrl || buildPlayerUrl(server, tournamentId, playerSnr, federation);
-    const res = await fetch(url);
+    const res = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
     const html = await res.text();
-    if (html.includes('exceeded') && html.includes('daily limit')) {
-      console.error('Rate limited by chess-results.com');
-      return null;
-    }
+    if (isRateLimitedHtml(html)) throw new RateLimitError('player fetch');
     return parsePlayerHtml(html);
   } catch (err) {
+    if (err instanceof RateLimitError) throw err;
     console.error('Error fetching player data:', err);
     return null;
   }
@@ -569,6 +580,7 @@ async function checkPlayerUpdate(
       .set({ data: JSON.stringify(newData), failCount: 0, updatedAt: sql`(datetime('now'))` })
       .where(eq(chessSessions.id, session.id));
   } catch (err) {
+    if (err instanceof RateLimitError) throw err;
     console.error(`[chess] Error checking session ${session.id}:`, err);
     await recordFetchFailure(db, session, writeLog);
   }
@@ -589,6 +601,15 @@ export interface PollResult {
   notifications: number;
   errors: number;
   skipped?: boolean;
+  rateLimited?: boolean;
+}
+
+const CYCLE_GUARD_MS = 50_000;
+const RATE_LIMIT_BACKOFF_MS = 30 * 60_000;
+
+async function setSetting(db: AppDB, key: string, value: string): Promise<void> {
+  await db.insert(settings).values({ key, value })
+    .onConflictDoUpdate({ target: settings.key, set: { value } });
 }
 
 export async function checkForUpdates(
@@ -597,10 +618,47 @@ export async function checkForUpdates(
   writeLog: (msg: string, level?: 'info' | 'warn' | 'error', source?: string) => Promise<void>,
   opts: { deliver?: boolean } = {},
 ): Promise<PollResult> {
+  // Rate-limit backoff: after chess-results.com's daily-limit page, skip
+  // silently until the backoff expires (the warn log + alert fired once when
+  // it was set).
+  const backoff = await db.select().from(settings).where(eq(settings.key, 'rate_limited_until')).limit(1);
+  if (backoff[0] && Date.parse(backoff[0].value) > Date.now()) {
+    return { sessions: 0, notifications: 0, errors: 0, skipped: true };
+  }
+
+  // Overlap guard: a cycle that started <50s ago may still be running — skip
+  // rather than risk double-sending the retry pass. The guard is cleared in
+  // finally; if a cycle crashes hard the stale guard expires on its own.
+  const guard = await db.select().from(settings).where(eq(settings.key, 'cycle_started_at')).limit(1);
+  if (guard[0] && Date.now() - Date.parse(guard[0].value) < CYCLE_GUARD_MS) {
+    await writeLog('Cycle skipped — previous poll still running', 'info', 'cron');
+    return { sessions: 0, notifications: 0, errors: 0, skipped: true };
+  }
+  await setSetting(db, 'cycle_started_at', new Date().toISOString());
+
+  try {
+    return await runCycle(db, sendNotification, writeLog, opts.deliver ?? true);
+  } catch (err) {
+    if (err instanceof RateLimitError) {
+      const until = new Date(Date.now() + RATE_LIMIT_BACKOFF_MS).toISOString();
+      await setSetting(db, 'rate_limited_until', until);
+      await writeLog(`Rate limited by chess-results.com — polling paused until ${until}`, 'warn', 'cron');
+      return { sessions: 0, notifications: 0, errors: 0, rateLimited: true };
+    }
+    throw err;
+  } finally {
+    await db.delete(settings).where(eq(settings.key, 'cycle_started_at'));
+  }
+}
+
+async function runCycle(
+  db: AppDB,
+  sendNotification: (title: string, message: string, url: string, type: string) => Promise<boolean>,
+  writeLog: (msg: string, level?: 'info' | 'warn' | 'error', source?: string) => Promise<void>,
   // During quiet hours polling continues but delivery is deferred: notifications
   // are saved unsent and the retry pass delivers them on the first cycle after.
-  const deliver = opts.deliver ?? true;
-
+  deliver: boolean,
+): Promise<PollResult> {
   // Prune old rows so worker_logs / notifications don't grow unbounded
   await db.delete(workerLogs).where(sql`${workerLogs.createdAt} < datetime('now', '-30 days')`);
   await db.delete(notifications).where(and(
@@ -716,6 +774,7 @@ export async function checkForUpdates(
         }
       }
     } catch (err) {
+      if (err instanceof RateLimitError) throw err;
       await writeLog(`Error processing tournament ${tournamentKey}: ${err}`, 'error', 'cron');
       errorCount++;
     }

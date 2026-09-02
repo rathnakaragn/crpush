@@ -445,7 +445,7 @@ function groupByTournament(sessions: ChessSession[]): Map<string, ChessSession[]
   return groups;
 }
 
-function findPlayerInStandings(standings: TournamentStanding[], playerSnr: string, playerName: string): TournamentStanding | undefined {
+export function findPlayerInStandings(standings: TournamentStanding[], playerSnr: string, playerName: string): TournamentStanding | undefined {
   // snr is chess-results.com's stable per-tournament player id — an exact
   // match rules out the name-collision risk entirely. Only fall back to
   // fuzzy name matching if a row's snr couldn't be parsed off its link.

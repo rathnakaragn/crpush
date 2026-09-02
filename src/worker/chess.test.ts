@@ -1,11 +1,16 @@
 import { describe, it, expect } from 'vitest';
-import { calculatePoints, calculateTotalRatingChange, parseSessionData, shouldRunCron, pollCadence, sessionCadence, parseBaseMinutes, isRateLimitedHtml } from './chess';
-import type { ChessSession } from './chess';
+import { calculatePoints, calculateTotalRatingChange, parseSessionData, shouldRunCron, pollCadence, sessionCadence, parseBaseMinutes, isRateLimitedHtml, findPlayerInStandings } from './chess';
+import type { ChessSession, TournamentStanding } from './chess';
 
 const makeSession = (overrides: Partial<ChessSession> = {}): ChessSession => ({
   id: 1, url: '', server: '', tournament_id: '', player_snr: '',
   federation: 'IND', status: 'running', notify: 1, fail_count: 0,
   data: '{}', created_at: '', updated_at: '', ...overrides,
+});
+
+const makeStanding = (overrides: Partial<TournamentStanding> = {}): TournamentStanding => ({
+  rank: 1, snr: '', name: '', rating: 0, points: 0, federation: '', title: '', ratingChange: 0, tiebreaks: [],
+  ...overrides,
 });
 
 describe('calculatePoints', () => {
@@ -205,5 +210,37 @@ describe('isRateLimitedHtml', () => {
   it('does not flag normal tournament pages', () => {
     expect(isRateLimitedHtml('<html><h2>Some Open 2026</h2>daily pairings</html>')).toBe(false);
     expect(isRateLimitedHtml('')).toBe(false);
+  });
+});
+
+describe('findPlayerInStandings', () => {
+  it('matches on snr even when the standings name has drifted from the stored name', () => {
+    const standings = [
+      makeStanding({ snr: '17', name: 'Kumar, Ravi Updated' }),
+      makeStanding({ snr: '8', name: 'S., Hariharan Murukappan' }),
+    ];
+    expect(findPlayerInStandings(standings, '17', 'Kumar, Ravi')?.snr).toBe('17');
+  });
+
+  it('does not cross-match two similarly-named players by snr', () => {
+    // Two entries whose names collide under the fuzzy word-order comparison —
+    // only the exact snr must decide which row is "our" player.
+    const standings = [
+      makeStanding({ snr: '4', name: 'Kumar, Ravi' }),
+      makeStanding({ snr: '9', name: 'Ravi Kumar' }),
+    ];
+    expect(findPlayerInStandings(standings, '9', 'Kumar, Ravi')?.snr).toBe('9');
+    expect(findPlayerInStandings(standings, '4', 'Kumar, Ravi')?.snr).toBe('4');
+  });
+
+  it('falls back to fuzzy name matching when snr is empty (unparsed row)', () => {
+    const standings = [makeStanding({ snr: '', name: 'Kumar, Ravi' })];
+    expect(findPlayerInStandings(standings, '', 'Ravi Kumar')?.name).toBe('Kumar, Ravi');
+    expect(findPlayerInStandings(standings, '9', 'Ravi Kumar')?.name).toBe('Kumar, Ravi');
+  });
+
+  it('returns undefined when neither snr nor name matches any row', () => {
+    const standings = [makeStanding({ snr: '4', name: 'Kumar, Ravi' })];
+    expect(findPlayerInStandings(standings, '9', 'Someone Else')).toBeUndefined();
   });
 });

@@ -6,6 +6,16 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.7.2] - 2026-09-02
+
+### Fixed
+
+- Added unit coverage for snr-based standings matching (`findPlayerInStandings`,
+  now exported): the exact two-similarly-named-players collision the v1.7.1
+  fix addressed, plus the fuzzy-name fallback path. The prior fixture
+  assertion only checked that `snr` parses — nothing exercised the matching
+  logic itself.
+
 ## [1.7.1] - 2026-09-02
 
 ### Fixed
@@ -238,7 +248,8 @@ Initial release.
 - HTML escaped in all template interpolations (XSS prevention).
 - Dashboard password hashed with PBKDF2.
 
-[Unreleased]: https://github.com/rathnakaragn/crpush/compare/v1.7.1...HEAD
+[Unreleased]: https://github.com/rathnakaragn/crpush/compare/v1.7.2...HEAD
+[1.7.2]: https://github.com/rathnakaragn/crpush/compare/v1.7.1...v1.7.2
 [1.7.1]: https://github.com/rathnakaragn/crpush/compare/v1.7.0...v1.7.1
 [1.7.0]: https://github.com/rathnakaragn/crpush/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/rathnakaragn/crpush/compare/v1.5.0...v1.6.0

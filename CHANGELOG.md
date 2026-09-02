@@ -6,6 +6,8 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.7.1] - 2026-09-02
+
 ### Fixed
 
 - Player matching against tournament standings now keys on chess-results.com's
@@ -236,7 +238,8 @@ Initial release.
 - HTML escaped in all template interpolations (XSS prevention).
 - Dashboard password hashed with PBKDF2.
 
-[Unreleased]: https://github.com/rathnakaragn/crpush/compare/v1.7.0...HEAD
+[Unreleased]: https://github.com/rathnakaragn/crpush/compare/v1.7.1...HEAD
+[1.7.1]: https://github.com/rathnakaragn/crpush/compare/v1.7.0...v1.7.1
 [1.7.0]: https://github.com/rathnakaragn/crpush/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/rathnakaragn/crpush/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/rathnakaragn/crpush/compare/v1.4.0...v1.5.0

@@ -3,6 +3,11 @@
 default:
     @just --list
 
+# one-time per clone: wire up the pre-push hook that enforces `just ci`
+install-hooks:
+    git config core.hooksPath .githooks
+    @echo "pre-push hook installed — 'just ci' now runs automatically before every push"
+
 # pre-push gate: typecheck + unit tests — don't push without this green
 ci: typecheck test
 

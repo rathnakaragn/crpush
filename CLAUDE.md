@@ -46,14 +46,17 @@ edit → `just ci` (green) → git commit (feat:/fix:) → git push → [milesto
   `just deploy`, not `just ci`
 
 There is **no remote / GitHub Actions CI** — deliberate: solo project,
-everything runs locally in seconds. The discipline: **don't push without
-`just ci` green**, tag only at milestones.
+everything runs locally in seconds. The discipline is enforced locally: a
+`pre-push` git hook runs `just ci` and blocks the push if it fails. Run
+`just install-hooks` once per clone to wire it up (bypass only with
+`git push --no-verify`).
 
 Requires [`just`](https://github.com/casey/just) (`brew install just`).
 
 ## Commands
 
 ```bash
+just install-hooks        # one-time per clone: wires up the pre-push gate
 just ci                   # pre-push gate: typecheck + unit tests
 just css                  # regenerate compiled Tailwind (src/worker/styles.ts)
 just db-generate <name>   # generate D1 migration from schema.ts changes

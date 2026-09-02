@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Enforces `just ci` before any push reaches origin. Installed via
+# `just install-hooks` (sets core.hooksPath). Bypass only with
+# `git push --no-verify` if you know what you're doing.
+set -uo pipefail
+
+if ! command -v just >/dev/null 2>&1; then
+    echo "pre-push: 'just' not found — install it (brew install just) or push with --no-verify" >&2
+    exit 1
+fi
+
+just ci
+status=$?
+
+if [ $status -ne 0 ]; then
+    echo "pre-push: 'just ci' failed — push aborted" >&2
+    exit 1
+fi
+
+exit 0

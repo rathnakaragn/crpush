@@ -28,6 +28,7 @@ Built with **Hono** + **Cloudflare D1** + **Drizzle ORM** + **server-rendered HT
 git clone git@github.com:rathnakaragn/crpush.git
 cd crpush
 npm install
+just install-hooks   # wires up the pre-push gate (just ci) — one time per clone
 ```
 
 ### 2. Create the D1 database
@@ -76,6 +77,7 @@ Log in with your `AUTH_PASSWORD` (set via `wrangler secret put AUTH_PASSWORD`).
 Recipes run via [`just`](https://github.com/casey/just) (`brew install just`):
 
 ```bash
+just install-hooks       # one-time per clone: enforces just ci on every push
 just ci                  # pre-push gate: typecheck + unit tests
 just dev                 # wrangler dev (local Worker)
 just deploy              # ci + integration tests, then wrangler deploy

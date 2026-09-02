@@ -64,6 +64,7 @@ describe('parseTournamentHtml (real fixture)', () => {
     expect(info.standings.length).toBe(73);
     const second = info.standings[1];
     expect(second.rank).toBe(2);
+    expect(second.snr).toBe('8');
     expect(second.name).toBe('S., Hariharan Murukappan');
     expect(second.rating).toBe(1410);
     expect(second.points).toBe(5);

@@ -6,6 +6,14 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Player matching against tournament standings now keys on chess-results.com's
+  stable per-tournament `snr` (parsed off the player's link in the standings
+  row) instead of fuzzy name matching alone — eliminates the risk of two
+  similarly-named players in the same tournament being cross-matched. Fuzzy
+  name matching remains a fallback for rows where `snr` can't be parsed.
+
 ## [1.7.0] - 2026-08-11
 
 ### Fixed

@@ -49,6 +49,7 @@ export interface SessionData {
 
 export interface TournamentStanding {
   rank: number;
+  snr: string;
   name: string;
   rating: number;
   points: number;
@@ -201,6 +202,12 @@ function parseStandingsTable(html: string): TournamentStanding[] {
     if (rank === 0) continue;
     const nameMatch = rowHtml.match(/<a[^>]*>([^<]+)<\/a>/i);
     const playerName = decodeHtmlEntities(nameMatch?.[1]?.trim() || cellTexts[4] || 'Unknown');
+    // The name links to the player's own detail page (?...&snr=N) — snr is
+    // chess-results.com's stable per-tournament player id, independent of
+    // name formatting. Falls back to '' on rare markup without the link;
+    // findPlayerInStandings then falls back to fuzzy name matching.
+    const snrMatch = rowHtml.match(/[?&](?:amp;)?snr=(\d+)/i);
+    const snr = snrMatch?.[1] || '';
     let rating = 0, points = 0, ratingChange = 0, title = '';
     if (/^(GM|IM|FM|CM|WGM|WIM|WFM|WCM|AFM|ACM)$/i.test(cellTexts[3])) title = cellTexts[3].toUpperCase();
     let ratingIdx = -1;
@@ -246,7 +253,7 @@ function parseStandingsTable(html: string): TournamentStanding[] {
       }
     }
     const fedMatch = rowHtml.match(/class="tn_([A-Z]{3})"/i);
-    standings.push({ rank, name: playerName, rating, points, federation: fedMatch?.[1] || '', title, ratingChange, tiebreaks });
+    standings.push({ rank, snr, name: playerName, rating, points, federation: fedMatch?.[1] || '', title, ratingChange, tiebreaks });
   }
   return standings;
 }
@@ -438,7 +445,14 @@ function groupByTournament(sessions: ChessSession[]): Map<string, ChessSession[]
   return groups;
 }
 
-function findPlayerInStandings(standings: TournamentStanding[], playerName: string): TournamentStanding | undefined {
+function findPlayerInStandings(standings: TournamentStanding[], playerSnr: string, playerName: string): TournamentStanding | undefined {
+  // snr is chess-results.com's stable per-tournament player id — an exact
+  // match rules out the name-collision risk entirely. Only fall back to
+  // fuzzy name matching if a row's snr couldn't be parsed off its link.
+  if (playerSnr) {
+    const bySnr = standings.find(s => s.snr === playerSnr);
+    if (bySnr) return bySnr;
+  }
   const normalize = (name: string) => name.toLowerCase().replace(/,/g, '').trim();
   const target = normalize(playerName);
   return standings.find(s => {
@@ -790,7 +804,7 @@ async function runCycle(
         let needsFetch = true;
 
         if (tournamentData) {
-          const standing = findPlayerInStandings(tournamentData.standings, oldData.player.name);
+          const standing = findPlayerInStandings(tournamentData.standings, session.player_snr, oldData.player.name);
           // >= (not >): when all known rounds have results, the next pairing
           // can appear without any standings change — keep watching the
           // player page until it does.
